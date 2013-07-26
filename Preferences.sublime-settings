@@ -1,10 +1,10 @@
 {
 	// If true, debug information will be printed to the console.
-	"vintageous_verbose": false,
+	"vintageous_verbose": true,
 
 	// If true, some key bindings prefaced by the CTRL modifier will override default Sublime Text
 	// key bindings.
-	"vintageous_use_ctrl_keys": false,
+	"vintageous_use_ctrl_keys": true,
 
 	// If true, search occurrences will be highlighted in '/', '?', etc.
 	"vintageous_hlsearch": true,
