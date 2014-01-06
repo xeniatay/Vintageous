@@ -28,6 +28,7 @@ from Vintageous.vi.constants import MODE_SELECT
 from Vintageous.vi.constants import mode_to_str
 from Vintageous.vi.constants import MODE_VISUAL
 from Vintageous.vi.constants import MODE_VISUAL_LINE
+from Vintageous.vi.constants import MODE_VISUAL_BLOCK
 from Vintageous.vi.constants import MOTION_TRANSLATION_TABLE
 from Vintageous.vi.constants import STASH
 from Vintageous.vi.contexts import KeyContext
@@ -171,6 +172,9 @@ class VintageState(object):
 
     def enter_visual_mode(self):
         self.mode = MODE_VISUAL
+
+    def enter_visual_block_mode(self):
+        self.mode = MODE_VISUAL_BLOCK
 
     def enter_normal_insert_mode(self):
         # This is the mode we enter when we give i a count, as in 5ifoobar<CR><ESC>.
@@ -378,6 +382,14 @@ class VintageState(object):
             self.action = name
             return
 
+        # HACK: Translate vi_enter to \n if we're expecting user input.
+        # This enables r\n, for instance.
+        # XXX: I don't understand why the enter key is captured as a motion in this case, though;
+        # the catch-all key binding for user input should have intercepted it.
+        if self.expecting_user_input and name == 'vi_enter':
+            self.view.run_command('collect_user_input', {'character': '\n'})
+            return
+
         # Check for digraphs like gg in dgg.
         stored_motion = self.motion
         if stored_motion and name:
@@ -561,6 +573,17 @@ class VintageState(object):
         """Returns the latest character search or `None`. Used by the , and ; commands.
         """
         return self.settings.vi['last_character_search'] or None
+
+    @property
+    def last_character_search_forward(self):
+        """Returns True, False or `None`. Used by the , and ; commands.
+        """
+        return self.settings.vi['last_character_search_forward'] or None
+
+    @last_character_search_forward.setter
+    def last_character_search_forward(self, value):
+        # TODO: Should this piece of data be global instead of local to each buffer?
+        self.settings.vi['last_character_search_forward'] = value
 
     @last_character_search.setter
     def last_character_search(self, value):

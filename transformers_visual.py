@@ -8,6 +8,7 @@ from Vintageous.vi.constants import _MODE_INTERNAL_NORMAL
 from Vintageous.vi.constants import MODE_NORMAL
 from Vintageous.vi.constants import MODE_VISUAL
 from Vintageous.vi.constants import MODE_VISUAL_LINE
+from Vintageous.vi.constants import MODE_VISUAL_BLOCK
 from Vintageous.vi.constants import regions_transformer
 from Vintageous.vi.text_objects import get_text_object_region
 
@@ -116,48 +117,6 @@ class ReorientCaret(sublime_plugin.TextCommand):
         regions_transformer(self.view, f)
 
 
-class VisualClipEndToEol(sublime_plugin.TextCommand):
-    def run(self, edit):
-        def f(view, s):
-            if s.a < s.b:
-                # going forward
-                if utils.is_at_hard_eol(self.view, s) and \
-                   not utils.visual_is_on_empty_line_forward(self.view, s):
-                        return utils.back_end_one_char(s)
-                else:
-                    return s
-            else:
-                # Moving down by lines.
-                return s
-
-        regions_transformer(self.view, f)
-
-
-class VisualDontOvershootLineLeft(sublime_plugin.TextCommand):
-    def run(self, edit, **kwargs):
-        def f(view, s):
-            if (s.a > s.b and utils.is_at_eol(self.view, s) and not s.b == 0):
-                    return utils.forward_end_one_char(s)
-            elif (s.a < s.b and utils.is_at_hard_eol(self.view, s)):
-                    return sublime.Region(s.a, s.b + 1)
-            else:
-                return s
-
-        regions_transformer(self.view, f)
-
-
-class VisualShrinkEndOneChar(sublime_plugin.TextCommand):
-    def run(self, edit):
-        def f(view, s):
-            if (s.a < s.b and not utils.visual_is_on_empty_line_forward(self.view, s) and
-               not (utils.visual_is_end_at_bol(self.view, s))):
-                    return utils.back_end_one_char(s)
-            else:
-                return s
-
-        regions_transformer(self.view, f)
-
-
 class VisualExtendToFullLine(sublime_plugin.TextCommand):
     def run(self, edit):
         def f(view, s):
@@ -204,35 +163,6 @@ class VisualExtendToLine(sublime_plugin.TextCommand):
         regions_transformer(self.view, f)
 
 
-class _vi_big_s(sublime_plugin.TextCommand):
-    def run(self, edit, mode=None):
-        def f(view, s):
-            if mode == _MODE_INTERNAL_NORMAL:
-                if view.line(s).empty():
-                    return s
-            elif mode == MODE_VISUAL:
-                if view.line(s.b - 1).empty() and s.size() == 1:
-                    return s
-
-            state = VintageState(self.view)
-            autoindent = state.settings.vi['autoindent']
-
-            if mode == _MODE_INTERNAL_NORMAL:
-                if not autoindent:
-                    return self.view.line(s)
-                else:
-                    pt = utils.next_non_white_space_char(view, self.view.line(s).a)
-                    return sublime.Region(pt, self.view.line(s).b)
-            elif mode == MODE_VISUAL:
-                if not autoindent:
-                    return self.view.line(sublime.Region(s.a, s.b - 1))
-                else:
-                    pt = utils.next_non_white_space_char(view, self.view.line(s.a).a)
-                    return sublime.Region(pt, self.view.line(s.b - 1).b)
-
-        regions_transformer(self.view, f)
-
-
 class _vi_big_c(sublime_plugin.TextCommand):
     def run(self, edit, mode=None):
         def f(view, s):
@@ -244,26 +174,6 @@ class _vi_big_c(sublime_plugin.TextCommand):
                     return s
 
             return sublime.Region(s.a, self.view.line(s).b)
-
-        regions_transformer(self.view, f)
-
-
-class VisualExtendEndToHardEnd(sublime_plugin.TextCommand):
-    def run(self, edit, mode=None):
-        def f(view, s):
-            if s.a < s.b:
-                # TODO: Wait until regions can compare themselves neatly.
-                if (self.view.line(s.b).a == self.view.line(s.b -1).a and
-                    self.view.line(s.b).b == self.view.line(s.b -1).b):
-                    return sublime.Region(s.a, self.view.full_line(s.b).b)
-                else:
-                    return s
-            else:
-                if self.view.line(s.b).a != s.b:
-                    r = sublime.Region(s.a, self.view.full_line(s.b).a)
-                    return r
-                else:
-                    return s
 
         regions_transformer(self.view, f)
 
@@ -445,74 +355,6 @@ class _d_w_post_every_motion(sublime_plugin.TextCommand):
         regions_transformer(self.view, f)
 
 
-class _back_one_if_on_hard_eol(sublime_plugin.TextCommand):
-    def run(self, edit, **kwargs):
-        def f(view, s):
-            if (s.a < s.b and self.view.full_line(s.b - 1).b == s.b):
-                    return sublime.Region(s.a, s.b - 1)
-            else:
-                return s
-
-        regions_transformer(self.view, f)
-
-
-class _extend_b_to_hard_eol(sublime_plugin.TextCommand):
-    """Ensures that all selections encompass the following new line character.
-
-       Use only for CHARACTERWISE VISUAL MODE or equivalent.
-    """
-    def run(self, edit, **kwargs):
-        def f(view, s):
-            # Consider 2d$. This command should delete two lines and this class helps with that.
-            # In some cases, though, we can't possibly know whether .b is at SOMELINE HARDEOL
-            # or at SOMELINE HARDBOL. For example, if .b is at CURRENTLINE HARDEOL and NEXTLINE is
-            # shorter, 2d$ may cause the caret to land at NEXTLINE HARDEOL, which is the same
-            # point as HARDBOL two lines down. In such case, we don't need to extend .b to
-            # HARDEOL, but with the available data to this function, we can't know that.
-            #
-            # For now, we'll consider the example above as an exception and let Vintageous do the
-            # wrong thing. It's more important that the command mentioned above works well when
-            # the caret is in the middle of a line or at HARDBOL.
-            state = VintageState(view)
-
-            if state.mode == MODE_VISUAL:
-                if s.a < s.b and not view.line(s.b - 1).empty():
-                    hard_eol = self.view.full_line(s.b - 1).b
-                    return sublime.Region(s.a, hard_eol)
-
-            elif state.mode == MODE_NORMAL:
-                pass
-
-            return s
-
-        regions_transformer(self.view, f)
-
-
-class _pre_every_dollar(sublime_plugin.TextCommand):
-    def run(self, edit, current_iteration, total_iterations):
-        def f(view, s):
-            state = VintageState(view)
-
-            if state.mode == MODE_NORMAL:
-                pass
-            return s
-
-        regions_transformer(self.view, f)
-
-
-class _extend_a_to_bol_if_leading_white_space(sublime_plugin.TextCommand):
-    def run(self, edit, **kwargs):
-        def f(view, s):
-            if (s.a <= s.b and
-                self.view.substr(sublime.Region(self.view.line(s.a).a, s.a)).isspace()):
-                    bol = self.view.line(s.a).a
-                    return sublime.Region(bol, s.b)
-            else:
-                return s
-
-        regions_transformer(self.view, f)
-
-
 class _vi_e_post_every_motion(sublime_plugin.TextCommand):
     """Use only with ``vi_e``.
 
@@ -656,46 +498,6 @@ class _vi_underscore_post_motion(sublime_plugin.TextCommand):
         regions_transformer(self.view, f)
 
 
-class _vi_j_pre_motion(sublime_plugin.TextCommand):
-    # Assume NORMAL_MODE / _MODE_INTERNAL_NORMAL
-    # This code is probably duplicated.
-    def run(self, edit):
-        def f(view, s):
-            line = view.line(s.b)
-            if view.substr(s.b) == '\n':
-                return sublime.Region(line.a, line.a + 1)
-            else:
-                return sublime.Region(line.a, line.b)
-
-        regions_transformer(self.view, f)
-
-
-class _vi_j_post_motion(sublime_plugin.TextCommand):
-    # Assume NORMAL_MODE / _MODE_INTERNAL_NORMAL
-    # This code is probably duplicated.
-    def run(self, edit):
-        def f(view, s):
-            a = view.line(s.a).a
-            b = view.line(s.b - 1).b
-            return sublime.Region(a, b + 1)
-
-        regions_transformer(self.view, f)
-
-
-class _vi_k_pre_motion(sublime_plugin.TextCommand):
-    # Assume NORMAL_MODE / _MODE_INTERNAL_NORMAL
-    # This code is probably duplicated.
-    def run(self, edit):
-        def f(view, s):
-            line = view.line(s.b)
-            if view.substr(s.b) == '\n':
-                return sublime.Region(line.b + 1, line.b)
-            else:
-                return sublime.Region(line.b + 1, line.a)
-
-        regions_transformer(self.view, f)
-
-
 class _vi_select_text_object(sublime_plugin.TextCommand):
     def run(self, edit, text_object=None, mode=None, count=1, extend=False, inclusive=False):
         def f(view, s):
@@ -795,8 +597,8 @@ class _vi_big_x_motion(sublime_plugin.TextCommand):
         regions_transformer(self.view, f)
 
 
-class _vi_l_motion(sublime_plugin.TextCommand):
-    def run(self, edit, mode=None, count=None, extend=False):
+class _vi_l(sublime_plugin.TextCommand):
+    def run(self, edit, mode=None, count=None):
         def f(view, s):
             if mode == MODE_NORMAL:
                 if view.line(s.b).empty():
@@ -810,7 +612,7 @@ class _vi_l_motion(sublime_plugin.TextCommand):
                 x_limit = max(0, x_limit)
                 return sublime.Region(s.a, x_limit)
 
-            if mode == MODE_VISUAL:
+            if mode in (MODE_VISUAL, MODE_VISUAL_BLOCK):
                 if s.a < s.b:
                     x_limit = min(view.full_line(s.b - 1).b, s.b + count)
                     return sublime.Region(s.a, x_limit)
@@ -831,15 +633,20 @@ class _vi_l_motion(sublime_plugin.TextCommand):
         regions_transformer(self.view, f)
 
 
-class _vi_h_motion(sublime_plugin.TextCommand):
-    def run(self, edit, count=None, extend=False, mode=None):
+class _vi_h(sublime_plugin.TextCommand):
+    def run(self, edit, count=None, mode=None):
         def f(view, s):
             if mode == _MODE_INTERNAL_NORMAL:
                 x_limit = max(view.line(s.b).a, s.b - count)
                 return sublime.Region(s.a, x_limit)
 
-            elif mode == MODE_VISUAL:
+            # TODO: Split handling of the two modes for clarity.
+            elif mode in (MODE_VISUAL, MODE_VISUAL_BLOCK):
+
                 if s.a < s.b:
+                    if mode == MODE_VISUAL_BLOCK and self.view.rowcol(s.b - 1)[1] == baseline:
+                        return s
+
                     x_limit = max(view.line(s.b - 1).a + 1, s.b - count)
                     if view.line(s.a) == view.line(s.b - 1) and count >= s.size():
                         x_limit = max(view.line(s.b - 1).a, s.b - count - 1)
@@ -857,10 +664,26 @@ class _vi_h_motion(sublime_plugin.TextCommand):
             # XXX: We should never reach this.
             return s
 
+        # For jagged selections (on the rhs), only those sticking out need to move leftwards.
+        # Example ([] denotes the selection):
+        #
+        #   10 foo bar foo [bar]
+        #   11 foo bar foo [bar foo bar]
+        #   12 foo bar foo [bar foo]
+        #
+        #  Only lines 11 and 12 should move when we press h.
+        baseline = 0
+        if mode == MODE_VISUAL_BLOCK:
+            sel = self.view.sel()[0]
+            if sel.a < sel.b:
+                min_ = min(self.view.rowcol(r.b - 1)[1] for r in self.view.sel())
+                if any(self.view.rowcol(r.b - 1)[1] != min_ for r in self.view.sel()):
+                    baseline = min_
+
         regions_transformer(self.view, f)
 
 
-class _vi_j_motion(sublime_plugin.TextCommand):
+class _vi_j(sublime_plugin.TextCommand):
     def folded_rows(self, pt):
         folds = self.view.folded_regions()
         try:
@@ -884,7 +707,7 @@ class _vi_j_motion(sublime_plugin.TextCommand):
             pass
         return pt
 
-    def run(self, edit, count=None, extend=False, mode=None, xpos=0):
+    def run(self, edit, count=None, mode=None, xpos=0):
         def f(view, s):
             if mode == MODE_NORMAL:
                 current_row = view.rowcol(s.b)[0]
@@ -937,8 +760,7 @@ class _vi_j_motion(sublime_plugin.TextCommand):
                     elif s.a > s.b:
                         start = s.a if not crosses_a else s.a - 1
                         end = view.text_point(target_row, xpos)
-                        if crosses_a and xpos == 0:
-                            end += 1
+                        end = end if (end < s.a) else end + 1
                         return sublime.Region(start, end)
                 else:
                     if s.a < s.b:
@@ -968,10 +790,34 @@ class _vi_j_motion(sublime_plugin.TextCommand):
 
             return s
 
+        if mode == MODE_VISUAL_BLOCK:
+            # Don't do anything if we have reversed selections.
+            if any((r.b < r.a) for r in self.view.sel()):
+                return
+            # FIXME: When there are multiple rectangular selections, S3 considers sel 0 to be the
+            # active one in all cases, so we can't know the 'direction' of such a selection and,
+            # therefore, we can't shrink it when we press k or j. We can only easily expand it.
+            # We could, however, have some more global state to keep track of the direction of
+            # visual block selections.
+            row, rect_b = self.view.rowcol(self.view.sel()[-1].b - 1)
+            # Don't do anything if the next row is empty or too short. Vim does a crazy thing: it
+            # doesn't select it and it doesn't include it in actions, but you have to still navigate
+            # your way through them.
+            # TODO: Match Vim's behavior.
+            next_line = self.view.line(self.view.text_point(row + 1, 0))
+            if next_line.empty() or self.view.rowcol(next_line.b)[1] < rect_b:
+                return
+
+            max_size = max(r.size() for r in self.view.sel())
+            row, col = self.view.rowcol(self.view.sel()[-1].a)
+            start = self.view.text_point(row + 1, col)
+            self.view.sel().add(sublime.Region(start, start + max_size))
+            return
+
         regions_transformer(self.view, f)
 
 
-class _vi_k_motion(sublime_plugin.TextCommand):
+class _vi_k(sublime_plugin.TextCommand):
     def previous_non_folded_pt(self, pt):
         # FIXME: If we have two contiguous folds, this method will fail.
         # Handle folded regions.
@@ -984,7 +830,7 @@ class _vi_k_motion(sublime_plugin.TextCommand):
             pass
         return pt
 
-    def run(self, edit, count=None, extend=False, mode=None, xpos=0):
+    def run(self, edit, count=None, mode=None, xpos=0):
         def f(view, s):
             if mode == MODE_NORMAL:
                 current_row = view.rowcol(s.b)[0]
@@ -1035,8 +881,13 @@ class _vi_k_motion(sublime_plugin.TextCommand):
 
                 if is_long_enough:
                     if s.a < s.b:
+                        # FIXME: The following if-else could use some brains.
                         offset = 0
                         if xpos == 0 and not crosses_a:
+                            offset = 1
+                        elif crosses_a:
+                            pass
+                        else:
                             offset = 1
                         start = s.a if not crosses_a else s.a + 1
                         return sublime.Region(start, view.text_point(target_row, xpos + offset))
@@ -1067,6 +918,25 @@ class _vi_k_motion(sublime_plugin.TextCommand):
                     target_pt = view.text_point(target_row, 0)
 
                     return sublime.Region(s.a, view.full_line(target_pt).a)
+
+        if mode == MODE_VISUAL_BLOCK:
+            # Don't do anything if we have reversed selections.
+            if any((r.b < r.a) for r in self.view.sel()):
+                return
+
+            rect_b = max(self.view.rowcol(r.b - 1)[1] for r in self.view.sel())
+            row, rect_a = self.view.rowcol(self.view.sel()[0].a)
+            previous_line = self.view.line(self.view.text_point(row - 1, 0))
+            # Don't do anything if previous row is empty. Vim does crazy stuff in that case.
+            # Don't do anything either if the previous line can't accomodate a rectangular selection
+            # of the required size.
+            if (previous_line.empty() or
+                self.view.rowcol(previous_line.b)[1] < rect_b):
+                    return
+            rect_size = max(r.size() for r in self.view.sel())
+            rect_a_pt = self.view.text_point(row - 1, rect_a)
+            self.view.sel().add(sublime.Region(rect_a_pt, rect_a_pt + rect_size))
+            return
 
         regions_transformer(self.view, f)
 
@@ -1105,20 +975,6 @@ class _vi_big_b_post_motion(sublime_plugin.TextCommand):
             elif mode == MODE_VISUAL:
                 if view.substr(s.b) != '\n':
                     return sublime.Region(s.a, view.line(s.b).b)
-
-            return s
-
-        regions_transformer(self.view, f)
-
-
-class _vi_big_s_post_motion(sublime_plugin.TextCommand):
-    # Assume S with a count.
-    def run(self, edit, mode=None):
-        def f(view, s):
-            if mode == _MODE_INTERNAL_NORMAL:
-                return sublime.Region(view.line(s.a).a, view.line(s.b).b)
-            elif mode == MODE_VISUAL:
-                return sublime.Region(view.line(s.a).a, view.line(s.b - 1).b)
 
             return s
 

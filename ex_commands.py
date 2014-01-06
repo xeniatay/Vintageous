@@ -847,3 +847,25 @@ class ExTabFirstCommand(sublime_plugin.WindowCommand):
 class ExTabOnlyCommand(sublime_plugin.WindowCommand):
     def run(self, forced=False):
         self.window.run_command("tab_control", {"command": "only", "forced": forced, }, )
+
+
+class ExCdCommand(sublime_plugin.WindowCommand):
+    """Ex command(s): :cd
+
+    Print or change the current directory.
+    """
+    def run(self, path=None):
+        if not path:
+            sublime.status_message("Vintageous: {0}".format(os.getcwd()))
+            return
+
+        path = os.path.realpath(os.path.expandvars(os.path.expanduser(path)))
+        if not os.path.exists(path):
+            # TODO: Add error number in ex_error.py.
+            sublime.status_message("Vintageous: Error can't find directory {0}".format(path))
+            return
+
+        # Note: :cd is almost meaningless in S3 since the current dir isn't maintained by the
+        # editor and can be changed (for example by a plugin) at any time.
+        os.chdir(path)
+        sublime.status_message("Vintageous: %s" % os.getcwd())

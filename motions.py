@@ -1,3 +1,68 @@
+"""Sublime Text commands performing vim motions.
+
+   If you are implementing a new motion command, stick it here.
+
+   Motion parsers belong instead in Vintageous/vi/motions.py.
+"""
+
+# == NOTES ABOUT THE IMPLEMENTATION OF MOTION COMMANDS
+#
+# Keep motion commands decoupled from state.VintageState. Pass them all necessary state data as
+# arguments (and only JSON values).
+#
+# For example, DON'T do this:
+#
+#   def run(self, ...):
+#       ...
+#       state = VintageState(self.view)
+#       if state.mode == MODE_NORMAL:
+#           ...
+#
+# But DO this instead:
+#
+#   def run(self, mode=None, ...):
+#       ...
+#       if mode == MODE_NORMAL:
+#           ...
+#
+#  Sublime Text commands must base its operation on arguments so that macros, undo and repeat work
+#  as expected. (There may be, however, exceptions.)
+#
+#  Also, motion commands should be as independent of each other as possible. This is why
+#  keeping so many classes in the same file should not impair their comprehension.
+#
+# == MOTION COMMAND NAMING
+#
+# Motion names should follow this pattern: _vi_l, _vi_g_h, etc.
+#
+# == ANATOMY OF A MOTION COMMAND
+#
+# (Any motion command not conforming to the pattern described below must be updated or is an
+# exception to the general rule.)
+#
+# Typically, motion commands follow the same pattern to deal with multiple modes and multiple
+# selections.
+#
+# Some of the work to implement motions so that they play well with Sublime Text has been abstracted
+# away, most notably in `regions_transformer`.
+#
+# Motions normally specify a transformer function nested within their .run() method. They might do
+# some work in .run() too, if necessary. The transformer function is called `f` by convention.
+# For each selection in the active view, it receives the `view` instance and a selection region.
+# This way, you modify all selections in the view, one by one (in order).
+#
+# Inside `f`, you must proceed in different ways depending on the current mode. For instance, in
+# visual mode, the `l` motion can move past the new line character, but not in normal mode.
+# Branching out inside `f` you can accommodate this differences.
+#
+# `f` must always return a new sublime.Region instance to replace the corresponding one. As a safety
+# measure, you should *always* return the passed in selection region again for unhandled cases. This
+# ensures correct operation for unimplemented modes for the command or invalid modes for the command.
+#
+# A simple motion to check out for an implementation of this pattern is `_vi_g__`, which advances
+# all carets to the end of the line, excluding the new line character.
+
+
 import sublime
 import sublime_plugin
 
@@ -11,6 +76,7 @@ from Vintageous.vi.search import reverse_search_by_pt
 from Vintageous.vi.search import find_in_range
 from Vintageous.vi.search import find_wrapping
 from Vintageous.vi.search import reverse_find_wrapping
+from Vintageous.vi import units
 
 import Vintageous.state
 
@@ -40,7 +106,7 @@ class ViMoveToHardBol(sublime_plugin.TextCommand):
 # FIXME: Only find exact char counts. Vim ignores the command when the count is larger than the
 # number of instances of the sought character.
 class ViFindInLineInclusive(sublime_plugin.TextCommand):
-    def run(self, edit, extend=False, character=None, mode=None, count=1):
+    def run(self, edit, extend=False, character=None, mode=None, count=1, change_direction=True):
         def f(view, s):
             eol = view.line(s.b).end()
             if not s.empty():
@@ -84,6 +150,9 @@ class ViFindInLineInclusive(sublime_plugin.TextCommand):
         else:
             state = VintageState(self.view)
             state.last_character_search = character
+            # Change only if the command is f, F, t, T; not if it's ',' or ';'.
+            if change_direction:
+                state.last_character_search_forward = True
 
         regions_transformer(self.view, f)
 
@@ -91,7 +160,7 @@ class ViFindInLineInclusive(sublime_plugin.TextCommand):
 # FIXME: Only find exact char counts. Vim ignores the command when the count is larger than the
 # number of instances of the sought character.
 class ViReverseFindInLineInclusive(sublime_plugin.TextCommand):
-    def run(self, edit, extend=False, character=None, mode=None, count=1):
+    def run(self, edit, extend=False, character=None, mode=None, count=1, change_direction=True):
         def f(view, s):
             # TODO: Refactor this mess.
             line_text = view.substr(sublime.Region(view.line(s.b).a, s.b))
@@ -114,10 +183,19 @@ class ViReverseFindInLineInclusive(sublime_plugin.TextCommand):
                 pt = view.line(s.b).a + final_offset
 
                 state = VintageState(view)
-                if state.mode == MODE_VISUAL or mode == _MODE_INTERNAL_NORMAL:
+                if mode == _MODE_INTERNAL_NORMAL:
                     if sublime.Region(s.b, pt) == s:
                         utils.blink()
                         return s
+                    return sublime.Region(s.a, pt)
+                elif mode == MODE_VISUAL:
+                    if sublime.Region(s.b, pt) == s:
+                        utils.blink()
+                        return s
+                    if s.a < s.b and pt < s.a:
+                        return sublime.Region(s.a + 1, pt)
+                    if pt >= s.a:
+                        return sublime.Region(s.a, pt + 1)
                     return sublime.Region(s.a, pt)
 
                 if pt == s.b:
@@ -133,6 +211,9 @@ class ViReverseFindInLineInclusive(sublime_plugin.TextCommand):
         else:
             state = VintageState(self.view)
             state.last_character_search = character
+            # Change only if the command is f, F, t, T; not if it's ',' or ';'.
+            if change_direction:
+                state.last_character_search_forward = False
 
         regions_transformer(self.view, f)
 
@@ -141,7 +222,7 @@ class ViFindInLineExclusive(sublime_plugin.TextCommand):
     """Contrary to *f*, *t* does not look past the caret's position, so if ``character`` is under
        the caret, nothing happens.
     """
-    def run(self, edit, extend=False, character=None, mode=None, count=1):
+    def run(self, edit, extend=False, character=None, mode=None, count=1, change_direction=True):
         def f(view, s):
             eol = view.line(s.b).end()
             if not s.empty():
@@ -187,6 +268,9 @@ class ViFindInLineExclusive(sublime_plugin.TextCommand):
         else:
             state = VintageState(self.view)
             state.last_character_search = character
+            # Change only if the command is f, F, t, T; not if it's ',' or ';'.
+            if change_direction:
+                state.last_character_search_forward = True
 
         regions_transformer(self.view, f)
 
@@ -195,7 +279,7 @@ class ViReverseFindInLineExclusive(sublime_plugin.TextCommand):
     """Contrary to *F*, *T* does not look past the caret's position, so if ``character`` is right
        before the caret, nothing happens.
     """
-    def run(self, edit, extend=False, character=None, mode=None, count=1):
+    def run(self, edit, extend=False, character=None, mode=None, count=1, change_direction=True):
         def f(view, s):
             line_text = view.substr(sublime.Region(view.line(s.b).a, s.b))
             a, b = view.line(s.b).a, s.b
@@ -229,6 +313,9 @@ class ViReverseFindInLineExclusive(sublime_plugin.TextCommand):
         else:
             state = VintageState(self.view)
             state.last_character_search = character
+            # Change only if the command is f, F, t, T; not if it's ',' or ';'.
+            if change_direction:
+                state.last_character_search_forward = False
 
         regions_transformer(self.view, f)
 
@@ -492,6 +579,21 @@ class ViBigM(sublime_plugin.TextCommand):
 
 
 class ViStar(sublime_plugin.TextCommand):
+    # TODO: implement searchiliter baseclass?
+    def hilite(self, pattern):
+        # TODO: Implement smartcase?
+        flags = sublime.IGNORECASE | sublime.LITERAL
+        regs = self.view.find_all(pattern, flags)
+        if not regs:
+            self.view.erase_regions('vi_search')
+            return
+
+        state = VintageState(self.view)
+        if not state.settings.vi['hlsearch']:
+            return
+
+        self.view.add_regions('vi_search', regs, 'comment', '', sublime.DRAW_NO_FILL)
+
     def run(self, edit, mode=None, extend=False, exact_word=True):
         def f(view, s):
 
@@ -530,12 +632,28 @@ class ViStar(sublime_plugin.TextCommand):
         # TODO: make sure we swallow any leading white space.
         query = self.view.substr(self.view.word(self.view.sel()[0].end()))
         if query:
+            self.hilite(query)
             state.last_buffer_search = query
 
         regions_transformer(self.view, f)
 
 
 class ViOctothorp(sublime_plugin.TextCommand):
+    # TODO: implement searchiliter baseclass?
+    def hilite(self, pattern):
+        # TODO: Implement smartcase?
+        flags = sublime.IGNORECASE | sublime.LITERAL
+        regs = self.view.find_all(pattern, flags)
+        if not regs:
+            self.view.erase_regions('vi_search')
+            return
+
+        state = VintageState(self.view)
+        if not state.settings.vi['hlsearch']:
+            return
+
+        self.view.add_regions('vi_search', regs, 'comment', '', sublime.DRAW_NO_FILL)
+
     def run(self, edit, mode=None, extend=False, exact_word=True):
         def f(view, s):
 
@@ -574,6 +692,7 @@ class ViOctothorp(sublime_plugin.TextCommand):
         # TODO: make sure we swallow any leading white space.
         query = self.view.substr(self.view.word(self.view.sel()[0].end()))
         if query:
+            self.hilite(query)
             state.last_buffer_search = query
 
         current_sel = self.view.sel()[0]
@@ -1200,8 +1319,203 @@ class _vi_g__(sublime_plugin.TextCommand):
 
             elif mode == _MODE_INTERNAL_NORMAL:
                 eol = view.line(s.b).b
-                return sublime.Region(s.a, eol - 1)
+                return sublime.Region(s.a, eol)
 
+            return s
+
+        regions_transformer(self.view, f)
+
+
+class _vi_big_g(sublime_plugin.TextCommand):
+    def run(self, edit, mode=None, count=None):
+        def f(view, s):
+            if mode == MODE_NORMAL:
+                pt = eof
+                if not view.line(eof).empty():
+                    pt = utils.previous_non_white_space_char(view, eof - 1,
+                                                         white_space='\n')
+                return sublime.Region(pt, pt)
+
+            elif mode == MODE_VISUAL:
+                return sublime.Region(s.a, eof)
+
+            elif mode == _MODE_INTERNAL_NORMAL:
+                return sublime.Region(s.a, eof)
+
+            elif mode == MODE_VISUAL_LINE:
+                return sublime.Region(s.a, eof)
+
+            return s
+
+        eof = self.view.size()
+        regions_transformer(self.view, f)
+
+
+class _vi_dollar(sublime_plugin.TextCommand):
+    def run(self, edit, mode=None, count=None):
+        def f(view, s):
+            if mode == MODE_NORMAL:
+                if count > 1:
+                    pt = view.line(target_row_pt).b
+                else:
+                    pt = view.line(s.b).b
+                if not view.line(pt).empty():
+                    return sublime.Region(pt - 1, pt - 1)
+                return sublime.Region(pt, pt)
+
+            elif mode == MODE_VISUAL:
+                current_line_pt = (s.b - 1) if (s.a < s.b) else s.b
+                if count > 1:
+                    end = view.full_line(target_row_pt).b
+                else:
+                    end = s.end()
+                    if not end == view.full_line(s.b - 1).b:
+                        end = view.full_line(s.b).b
+                end = end if (s.a < end) else (end - 1)
+                start = s.a if ((s.a < s.b) or (end < s.a)) else s.a - 1
+                return sublime.Region(start, end)
+
+            elif mode == _MODE_INTERNAL_NORMAL:
+                if count > 1:
+                    pt = view.line(target_row_pt).b
+                else:
+                    pt = view.line(s.b).b
+                if count == 1:
+                    return sublime.Region(s.a, pt)
+                return sublime.Region(s.a, pt + 1)
+
+            elif mode == MODE_VISUAL_LINE:
+                # TODO: Implement this. Not too useful, though.
+                return s
+
+            return s
+
+        sel = self.view.sel()[0]
+        target_row_pt = (sel.b - 1) if (sel.b > sel.a) else sel.b
+        if count > 1:
+            current_row = self.view.rowcol(target_row_pt)[0]
+            target_row = current_row + count - 1
+            target_row_pt = self.view.text_point(target_row, 0)
+
+        regions_transformer(self.view, f)
+
+
+class _vi_cc_motion(sublime_plugin.TextCommand):
+    def run(self, edit, mode=None, count=1):
+        def f(view, s):
+            if mode == _MODE_INTERNAL_NORMAL:
+                if count == 1:
+                    return view.line(s.b)
+                row, _ = view.rowcol(s.b)
+                target_line = view.text_point(row + count - 1, 0)
+                return sublime.Region(view.line(s.b).a, view.line(target_line).b)
+            return s
+
+        regions_transformer(self.view, f)
+
+
+class _vi_big_s_motion(sublime_plugin.TextCommand):
+    def run(self, edit, mode=None, count=1):
+        def f(view, s):
+            if mode == _MODE_INTERNAL_NORMAL:
+                if count == 1:
+                    line = view.line(s.b)
+                    if not view.substr(line).strip():
+                        return s
+                    return line
+                row, _ = view.rowcol(s.b)
+                target_line = view.text_point(row + count - 1, 0)
+                return sublime.Region(view.line(s.b).a, view.line(target_line).b)
+            return s
+
+        regions_transformer(self.view, f)
+
+
+class _vi_w(sublime_plugin.TextCommand):
+    def run(self, edit, mode=None, count=1):
+        def f(view, s):
+            if mode == MODE_NORMAL:
+                pt = units.word_starts(view, start=s.b, count=count)
+                if ((pt == view.size()) and (not view.line(pt).empty())):
+                    pt = utils.previous_non_white_space_char(view, pt - 1,
+                                                            white_space='\n')
+                return sublime.Region(pt, pt)
+            elif mode == MODE_VISUAL:
+                pt = units.word_starts(view, start=s.b - 1, count=count)
+                if s.a > s.b and pt >= s.a:
+                    return sublime.Region(s.a - 1, pt + 1)
+                elif s.a > s.b:
+                    return sublime.Region(s.a, pt)
+                elif (view.size() == pt):
+                    pt -= 1
+                return sublime.Region(s.a, pt + 1)
+            elif mode == _MODE_INTERNAL_NORMAL:
+                a = s.a
+                pt = units.word_starts(view, start=s.b, count=count, internal=True)
+                if (not view.substr(view.line(s.a)).strip() and
+                    (view.line(s.b) != view.line(pt))):
+                        a = view.line(s.a).a
+                return sublime.Region(a, pt)
+            return s
+
+        regions_transformer(self.view, f)
+
+
+class _vi_big_w(sublime_plugin.TextCommand):
+    def run(self, edit, mode=None, count=1):
+        def f(view, s):
+            if mode == MODE_NORMAL:
+                pt = units.big_word_starts(view, start=s.b, count=count)
+                if ((pt == view.size()) and (not view.line(pt).empty())):
+                    pt = utils.previous_non_white_space_char(view, pt - 1,
+                                                            white_space='\n')
+                return sublime.Region(pt, pt)
+            elif mode == MODE_VISUAL:
+                pt = units.big_word_starts(view, start=s.b - 1, count=count)
+                if s.a > s.b and pt >= s.a:
+                    return sublime.Region(s.a - 1, pt + 1)
+                elif s.a > s.b:
+                    return sublime.Region(s.a, pt)
+                elif (view.size() == pt):
+                    pt -= 1
+                return sublime.Region(s.a, pt + 1)
+            elif mode == _MODE_INTERNAL_NORMAL:
+                a = s.a
+                pt = units.big_word_starts(view, start=s.b, count=count, internal=True)
+                if (not view.substr(view.line(s.a)).strip() and
+                    (view.line(s.b) != view.line(pt))):
+                        a = view.line(s.a).a
+                return sublime.Region(a, pt)
+            return s
+
+        regions_transformer(self.view, f)
+
+
+class _vi_e(sublime_plugin.TextCommand):
+    def run(self, edit, mode=None, count=1):
+        def f(view, s):
+            if mode == MODE_NORMAL:
+                pt = units.word_ends(view, start=s.b, count=count)
+                if ((pt == view.size() - 1) and (not view.line(pt).empty())):
+                    pt = utils.previous_non_white_space_char(view, pt - 1,
+                                                            white_space='\n')
+                return sublime.Region(pt, pt)
+            elif mode == MODE_VISUAL:
+                pt = units.word_ends(view, start=s.b - 1, count=count)
+                if s.a > s.b and pt >= s.a:
+                    return sublime.Region(s.a - 1, pt + 1)
+                elif s.a > s.b:
+                    return sublime.Region(s.a, pt)
+                elif (view.size() == pt):
+                    pt -= 1
+                return sublime.Region(s.a, pt + 1)
+            elif mode == _MODE_INTERNAL_NORMAL:
+                a = s.a
+                pt = units.word_ends(view, start=s.b, count=count, internal=True)
+                if (not view.substr(view.line(s.a)).strip() and
+                    (view.line(s.b) != view.line(pt))):
+                        a = view.line(s.a).a
+                return sublime.Region(a, pt + 1)
             return s
 
         regions_transformer(self.view, f)

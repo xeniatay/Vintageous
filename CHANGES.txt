@@ -1,3 +1,69 @@
+1.7.2 - 25/7/2013
+
+	- Improve w motion.
+	- Improve W motion.
+	- Fix $ motion with multiple selections.
+	- Improve aw text object.
+	- Improve e motion.
+
+1.7.1 - 21/7/2013
+
+	- Reimplement W motion in normal and visual mode.
+
+1.7.0 - 21/7/2013
+
+	- Improve select mode (gh).
+	- Reimplement w motion to avoid using built-in Sublime Text command.
+	- Improve aw text object.
+	- Improve redo.
+
+1.6.0 - 20/7/2013
+
+	- Add basic visual block mode.
+
+1.5.0 - 19/7/2013
+
+	- Improve indentation handling with S command.
+	- Enable '+' register.
+	- Reverse ',' and ';' depending on the last character search command.
+
+1.4.9 - 18/7/2013
+
+	- Add :cd command.
+	- Improve Ctrl-x action.
+	- Improve cc action.
+	- Enable top-level completions in command line.
+
+1.4.8 - 16/7/2013
+
+	- Improve F in visual mode.
+	- Improve " in visual mode.
+	- Improve g_ in internal normal mode.
+
+1.4.7 - 15/7/2013
+
+	- Re-enable " action in visual mode.
+
+1.4.6 - 15/7/2013
+	
+	- Improve G motion.
+	- Improve j motion.
+	- Improve k motion.
+
+1.4.5 - 13/7/2013
+
+	- Improve G motion.
+	- Improve $ motion.
+
+1.4.4 - 11/7/2013
+
+	- r action can replace with '\n'.
+
+1.4.3 - 11/7/2013
+
+	- Improve p action.
+	- Implement gt and gT actions.
+
 1.4.2 - 9/7/2013
 
 	- Improve status bar feedback.

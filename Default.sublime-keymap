@@ -27,7 +27,7 @@
 
 	// Non-standard Vim commands.
 	{ "keys": ["j"], "command": "find_under_expand",      "context": [{"key": "vi_mode_select"}] },
-	{ "keys": ["k"], "command": "soft_undo",              "context": [{"key": "vi_mode_select"}] },
+	{ "keys": ["k"], "command": "vi_soft_undo",           "context": [{"key": "vi_mode_select"}] },
 	{ "keys": ["l"], "command": "find_under_expand_skip", "context": [{"key": "vi_mode_select"}] },
 	{ "keys": ["A"], "command": "find_all_under",         "context": [{"key": "vi_mode_select"}] },
 	
@@ -110,7 +110,7 @@
 	// TODO: Does it take counts?
 	{ "keys": ["u"], "command": "_vi_undo", "context": [{"key": "vi_mode_normal"}] },
 	// TODO: implement counts for redo and make it go through all the normal machinery.
-	{ "keys": ["ctrl+r"], "command": "redo", "context": [{"key": "vi_mode_normal"}, {"key": "vi_use_ctrl_keys"}] },
+	{ "keys": ["ctrl+r"], "command": "_vi_redo", "context": [{"key": "vi_mode_normal"}, {"key": "vi_use_ctrl_keys"}] },
 
 	// TODO: Do we really want to use the built-in jump list? Do we have are own?
 	{ "keys": ["ctrl+o"], "command": "jump_back",    "context": [{"key": "vi_mode_normal"}, {"key": "vi_use_ctrl_keys"}] },
@@ -122,6 +122,9 @@
 	{ "keys": ["ctrl+b"], "command": "set_motion", "args": {"motion": "vi_ctrl_b"}, "context": [{"key": "vi_mode_normal_or_any_visual"}, {"key": "vi_use_ctrl_keys"}] },
 	{ "keys": ["ctrl+d"], "command": "set_motion", "args": {"motion": "vi_ctrl_d"}, "context": [{"key": "vi_mode_normal_or_any_visual"}, {"key": "vi_use_ctrl_keys"}] },
 	{ "keys": ["ctrl+u"], "command": "set_motion", "args": {"motion": "vi_ctrl_u"}, "context": [{"key": "vi_mode_normal_or_any_visual"}, {"key": "vi_use_ctrl_keys"}] },
+
+	{ "keys": ["ctrl+e"], "command": "set_action", "args": {"action": "vi_ctrl_e"}, "context": [{"key": "vi_mode_normal_or_visual"}, {"key": "vi_use_ctrl_keys"}] },
+	{ "keys": ["ctrl+y"], "command": "set_action", "args": {"action": "vi_ctrl_y"}, "context": [{"key": "vi_mode_normal_or_visual"}, {"key": "vi_use_ctrl_keys"}] },
 
 	{ "keys": ["d"], "command": "set_action", "args": {"action": "vi_d"},     "context": [{"key": "setting.command_mode"}] },
 	{ "keys": ["s"], "command": "set_action", "args": {"action": "vi_s"},     "context": [{"key": "setting.command_mode"}] },
@@ -179,7 +182,6 @@
 
 	// TODO: Restrict this to when there's no count, action or motion.
 	{ "keys": ["\""], "command": "set_register", "context": [{"key": "setting.command_mode"}] },
-	{ "keys": ["<character>"], "command": "set_register", "context": [{"key": "setting.command_mode", "key": "vi_state_expecting_register"}] },
 
 	{ "keys": ["m"], "command": "set_action", "args": {"action": "vi_m"}, "context": [{"key": "setting.command_mode"}] },
 	{ "keys": ["'"], "command": "set_motion", "args": {"motion": "vi_quote"}, "context": [{"key": "setting.command_mode"}] },
@@ -236,6 +238,9 @@
 	{ "keys": ["q"], "command": "_vi_q", 								   "context": [{"key": "vi_is_recording_macro"}] },
 	{ "keys": ["@"], "command": "set_action", "args": {"action": "vi_at"}, "context": [{"key": "vi_mode_normal"}] },
 
+	// Put this before ctrlw+w namespace keys to avoid conflicts.
+	{ "keys": ["ctrl+v"], "command": "set_action", "args": {"action": "vi_enter_visual_block_mode"}, "context": [{"key": "vi_use_ctrl_keys"}, {"key": "vi_mode_normal"}]},
+
 	// Pane management
 	{ "keys": ["ctrl+w"], "command": "set_action", "args": {"action": "vi_ctrl_w_action"}, "context": [{"key": "setting.command_mode"}]},
 	// TODO: The action name is misleading.
@@ -253,7 +258,6 @@
 	{ "keys": ["ctrl+a"], "command": "set_action", "args": {"action": "vi_ctrl_a"}, "context": [{"key": "vi_use_ctrl_keys"}, {"key": "setting.command_mode"}]},
 	{ "keys": ["ctrl+x"], "command": "set_action", "args": {"action": "vi_ctrl_x"}, "context": [{"key": "vi_use_ctrl_keys"}, {"key": "setting.command_mode"}]},
 
-
 	// Cmdline mode commands ======================================================================================================
 	{ "keys": [":"], "command": "vi_colon_input",                                     "context": [{"key": "setting.command_mode"}, {"key": "vi_enable_cmdline_mode"}] },
  	{ "keys": [":"], "command": "vi_colon_input", "args": {"initial_text": ":'<,'>"}, "context": [{"key": "setting.command_mode"}, {"key": "selection_empty", "operator": "equal", "operand": false }, {"key": "vi_enable_cmdline_mode"}] },
@@ -262,6 +266,7 @@
  	{ "keys": ["down"], "command": "cycle_cmdline_history", "context": [{"key": "vi_is_cmdline"}] },
 	// =============================================================================================================================
 
+	{ "keys": ["<character>"], "command": "set_register", "context": [{"key": "setting.command_mode", "key": "vi_state_expecting_register"}] },
 	// Collects user input for commands such as t, f, T, F.
 	// XXX: Seems to need to come after every other key binding so it will catch every character. Investigate this.
 	// FIXME: Won't capture '\n'... Perhaps it's a limitation of Sublime Text?

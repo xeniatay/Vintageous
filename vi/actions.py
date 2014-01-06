@@ -1,3 +1,8 @@
+"""Action parsers.
+
+   Action commands go in Vintageous/actions.py; not here.
+"""
+
 # All data types stores in the ``vi_cmd_data`` dictionary must be valid for JSON.
 # The dictionary ends up being an argumento to an ST command.
 
@@ -12,6 +17,7 @@ from Vintageous.vi.constants import MODE_REPLACE
 from Vintageous.vi.constants import MODE_SELECT
 from Vintageous.vi.constants import MODE_VISUAL
 from Vintageous.vi.constants import MODE_VISUAL_LINE
+from Vintageous.vi.constants import MODE_VISUAL_BLOCK
 
 
 def vi_enter_visual_mode(vi_cmd_data):
@@ -41,6 +47,13 @@ def vi_enter_visual_line_mode(vi_cmd_data):
     vi_cmd_data['action']['command'] = 'vi_enter_visual_line_mode'
     vi_cmd_data['action']['args'] = {}
     vi_cmd_data['post_action'] = ['visual_extend_to_full_line',]
+    return vi_cmd_data
+
+
+def vi_enter_visual_block_mode(vi_cmd_data):
+    vi_cmd_data['motion_required'] = False
+    vi_cmd_data['action']['command'] = 'vi_enter_visual_block_mode'
+    vi_cmd_data['action']['args'] = {}
     return vi_cmd_data
 
 
@@ -267,29 +280,14 @@ def vi_big_s(vi_cmd_data):
     vi_cmd_data['can_yank'] = True
     vi_cmd_data['yanks_linewise'] = True
 
-    if vi_cmd_data['count'] == 1:
-        # Force execution of motion steps.
-        vi_cmd_data['motion']['command'] = 'no_op'
-        vi_cmd_data['motion']['args'] = {'forward': True}
-        vi_cmd_data['post_motion'] = [['_vi_big_s', {'mode': vi_cmd_data['mode']}]]
-
-        vi_cmd_data['motion_required'] = False
-        vi_cmd_data['action']['command'] = 'right_delete'
-        vi_cmd_data['action']['args'] = {}
-        vi_cmd_data['follow_up_mode'] = 'vi_enter_insert_mode'
-        vi_cmd_data['next_mode'] = MODE_INSERT
-    else:
-        # Avoid S'ing one line too many.
-        vi_cmd_data['count'] = vi_cmd_data['count'] - 1
-        vi_cmd_data['motion']['command'] = 'move'
-        vi_cmd_data['motion']['args'] = {'by': 'lines', 'forward': True, 'extend': True}
-        vi_cmd_data['post_motion'] = [['_vi_big_s_post_motion' ,{'mode': vi_cmd_data['mode']}],]
-
-        vi_cmd_data['motion_required'] = False
-        vi_cmd_data['action']['command'] = 'right_delete'
-        vi_cmd_data['action']['args'] = {}
-        vi_cmd_data['follow_up_mode'] = 'vi_enter_insert_mode'
-        vi_cmd_data['next_mode'] = MODE_INSERT
+    vi_cmd_data['motion_required'] = False
+    vi_cmd_data['motion']['command'] = '_vi_big_s_motion'
+    vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count']}
+    vi_cmd_data['action']['command'] = '_vi_big_s_action'
+    vi_cmd_data['action']['args'] = {'mode': vi_cmd_data['mode']}
+    vi_cmd_data['count'] == 1
+    vi_cmd_data['follow_up_mode'] = 'vi_enter_insert_mode'
+    vi_cmd_data['next_mode'] = MODE_INSERT
 
     return vi_cmd_data
 
@@ -344,14 +342,14 @@ def vi_p(vi_cmd_data):
     vi_cmd_data['motion_required'] = False
     vi_cmd_data['action']['command'] = 'vi_paste'
     vi_cmd_data['action']['args'] = {'count': vi_cmd_data['count'], 'register': vi_cmd_data['register']}
+    # XXX: Since actions perform the actual edits to the buffer, they too should be in charge of
+    # readjusting the selections? I think that would be better than the current approach.
     vi_cmd_data['post_action'] = ['dont_stay_on_eol_backward',]
 
-    if vi_cmd_data['mode'] == MODE_VISUAL:
+    if vi_cmd_data['mode'] in (MODE_VISUAL, MODE_VISUAL_LINE):
         vi_cmd_data['post_action'] = ['collapse_to_a',]
-        vi_cmd_data['follow_up_mode'] = 'vi_enter_normal_mode'
-    elif vi_cmd_data['mode'] == MODE_VISUAL_LINE:
-        vi_cmd_data['post_action'] = ['collapse_to_a',]
-        vi_cmd_data['follow_up_mode'] = 'vi_enter_normal_mode'
+
+    vi_cmd_data['follow_up_mode'] = 'vi_enter_normal_mode'
 
     return vi_cmd_data
 
@@ -386,19 +384,16 @@ def vi_dd(vi_cmd_data):
 
 def vi_cc(vi_cmd_data):
     vi_cmd_data['can_yank'] = True
-    # Even though this command operates CHARACTERWISE, when populating registers it switches to
-    # LINEWISE.
     vi_cmd_data['yanks_linewise'] = True
 
-    vi_cmd_data['motion']['command'] = 'no_op'
-    vi_cmd_data['motion']['args'] = {'forward': True}
+    # We need a separate motion step so that registers get populated.
+    vi_cmd_data['motion']['command'] = '_vi_cc_motion'
+    vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count']}
+    vi_cmd_data['count'] = 1
     vi_cmd_data['motion_required'] = False
-    vi_cmd_data['post_motion'] = [['visual_extend_to_line',],]
 
-    # FIXME: cc should not delete empty lines, so we need a specific command here that takes that
-    # into account.
-    vi_cmd_data['action']['command'] = 'right_delete'
-    vi_cmd_data['action']['args'] = {}
+    vi_cmd_data['action']['command'] = '_vi_cc_action'
+    vi_cmd_data['action']['args'] = {'mode': vi_cmd_data['mode']}
     vi_cmd_data['follow_up_mode'] = 'vi_enter_insert_mode'
     vi_cmd_data['next_mode'] = MODE_INSERT
 
@@ -779,7 +774,7 @@ def vi_esc(vi_cmd_data):
         vi_cmd_data['action']['args'] = {}
         vi_cmd_data['motion']['command'] = 'no_op'
         vi_cmd_data['motion']['args'] = {}
-    elif vi_cmd_data['mode'] in (MODE_VISUAL, MODE_VISUAL_LINE,):
+    elif vi_cmd_data['mode'] in (MODE_VISUAL, MODE_VISUAL_LINE, MODE_VISUAL_BLOCK):
         vi_cmd_data['action']['command'] = 'vi_enter_normal_mode'
         vi_cmd_data['action']['args'] = {}
         vi_cmd_data['motion']['command'] = 'no_op'
@@ -969,3 +964,23 @@ def vi_g_tilde_g_tilde(vi_cmd_data):
     vi_cmd_data['post_action'] = ['collapse_to_a',]
 
     return vi_cmd_data
+
+# TODO: This is wrong. They must be motions.
+def vi_ctrl_e(vi_cmd_data):
+    vi_cmd_data['motion_required'] = False
+    vi_cmd_data['_repeat_action'] = True
+    vi_cmd_data['action']['command'] = '_vi_ctrl_e'
+    vi_cmd_data['action']['args'] = {'mode': vi_cmd_data['mode']}
+
+    return vi_cmd_data
+
+
+# TODO: This is wrong. They must be motions.
+def vi_ctrl_y(vi_cmd_data):
+    vi_cmd_data['motion_required'] = False
+    vi_cmd_data['_repeat_action'] = True
+    vi_cmd_data['action']['command'] = '_vi_ctrl_y'
+    vi_cmd_data['action']['args'] = {'mode': vi_cmd_data['mode']}
+
+    return vi_cmd_data
+

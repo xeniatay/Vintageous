@@ -1,7 +1,13 @@
+"""Motion parsers.
+
+   Motion commands go in Vintageous/motions.py; not here.
+"""
+
 from Vintageous.vi.constants import _MODE_INTERNAL_NORMAL
 from Vintageous.vi.constants import MODE_NORMAL
 from Vintageous.vi.constants import MODE_VISUAL
 from Vintageous.vi.constants import MODE_VISUAL_LINE
+from Vintageous.vi.constants import MODE_VISUAL_BLOCK
 
 
 # $
@@ -9,80 +15,9 @@ def vi_dollar(vi_cmd_data):
     if vi_cmd_data['count'] > 5:
         vi_cmd_data['is_jump'] = True
 
-    # No count given.
-    if vi_cmd_data['count'] == 1:
-        vi_cmd_data['motion']['command'] = 'move_to'
-        vi_cmd_data['motion']['args'] = {'to': 'eol'}
-
-        # CHARACTERWISE + INCLUSIVE
-        # d$
-        # TODO: If on hard eol, cancel movement; don't go to the next eol.
-        if vi_cmd_data['mode'] == _MODE_INTERNAL_NORMAL:
-            vi_cmd_data['motion']['args']['extend'] = True
-            vi_cmd_data['post_motion'] = [['visual_clip_end_to_eol',],]
-
-        # CHARACTERWISE + INCLUSIVE (includes EOL)
-        # vd$
-        elif vi_cmd_data['mode'] == MODE_VISUAL:
-            vi_cmd_data['motion']['args']['extend'] = True
-            # Prevent $ from jumping to next line's eol.
-            # XXX: This is a suboptimal. It will fail if $'ing on an empty line.
-            #      Perhaps we need a _visual_dollar_forward command to cover all cases.
-            vi_cmd_data['pre_motion'] = ['_back_one_if_on_hard_eol',]
-            vi_cmd_data['post_motion'] = [['_extend_b_to_hard_eol',],]
-
-        # LINEWISE + INCLUSIVE
-        # Vd$
-        elif vi_cmd_data['mode'] == MODE_VISUAL_LINE:
-            vi_cmd_data['motion']['args']['extend'] = True
-            vi_cmd_data['post_motion'] = [['visual_extend_to_full_line',],]
-
-        # CHARACTERWISE + INCLUSIVE
-        # $
-        else:
-            vi_cmd_data['post_motion'] = [['clip_end_to_line',],]
-
-    # Count given. Move lines downward.
-    else:
-        vi_cmd_data['motion']['command'] = 'move'
-        vi_cmd_data['motion']['args'] = {'by': 'lines', 'forward': True}
-        # <count>$ must include the current line, so we subtract one.
-        vi_cmd_data['count'] = vi_cmd_data['count'] - 1
-
-        if vi_cmd_data['mode'] == _MODE_INTERNAL_NORMAL:
-            vi_cmd_data['motion']['args']['extend'] = True
-            # LINEWISE
-            # 2d$
-            #
-            # $ behaves differently depending on whether the caret is at BOL (LINEWISE + INCLUSIVE)
-            # or not (LINEWISE + EXCLUSIVE). We cannot handle this here, so let an additional
-            # command take care of the final deicisions.
-            #
-            # FIXME: Behavior also depends on whitespace before the caret. Motion becomes
-            # linewise in that case.
-            #
-            # vi_cmd_data['count'] = vi_cmd_data['count'] + 1
-            vi_cmd_data['pre_every_motion'] = ['_pre_every_dollar',]
-            # vi_cmd_data['post_motion'] = [['_extend_b_to_hard_eol',],]
-            # Motion becomes linewise if caret is preceded only by white space.
-            # vi_cmd_data['post_motion'].append(['_extend_a_to_bol_if_leading_white_space',])
-
-        # CHARACTERWISE + INCLUSIVE (includes last EOL)
-        elif vi_cmd_data['mode'] == MODE_VISUAL:
-            # CHARACTERWISE + INCLUSIVE
-            # v2$
-            #
-            vi_cmd_data['motion']['args']['extend'] = True
-            vi_cmd_data['post_motion'].append(['_extend_b_to_hard_eol',])
-            # Motion becomes linewise if caret is preceded only by white space.
-            vi_cmd_data['post_motion'].append(['_extend_a_to_bol_if_leading_white_space',])
-        else:
-            # LINEWISE + EXCLUSIVE
-            # 2$
-            vi_cmd_data['post_motion'].append(['move_to', {'to': 'eol'}])
-            vi_cmd_data['post_motion'].append(['clip_end_to_line',])
-
-            # TODO: missing MODE_VISUAL_LINE here.
+    vi_cmd_data['motion']['command'] = '_vi_dollar'
+    vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count']}
+    vi_cmd_data['count'] = 1
 
     return vi_cmd_data
 
@@ -91,23 +26,14 @@ def vi_big_g(vi_cmd_data):
     if (vi_cmd_data['count'] > 5) or vi_cmd_data['count'] == 1:
         vi_cmd_data['is_jump'] = True
 
-    # FIXME: Cannot go to line 1. We need to signal when the count is user-provided and when it's
-    # a default value.
     if vi_cmd_data['_user_provided_count']:
         target = vi_cmd_data['count']
         vi_cmd_data['count'] = 1
         vi_cmd_data['motion']['command'] = 'vi_go_to_line'
         vi_cmd_data['motion']['args'] = {'line': target, 'mode': vi_cmd_data['mode']}
     else:
-        vi_cmd_data['motion']['command'] = 'move_to'
-        vi_cmd_data['motion']['args'] = {'to': 'eof'}
-
-    if vi_cmd_data['mode'] == MODE_VISUAL:
-        vi_cmd_data['motion']['args']['extend'] = True
-    elif vi_cmd_data['mode'] == _MODE_INTERNAL_NORMAL:
-        vi_cmd_data['motion']['args']['extend'] = True
-    elif vi_cmd_data['mode'] == MODE_VISUAL_LINE:
-        vi_cmd_data['motion']['args']['extend'] = True
+        vi_cmd_data['motion']['command'] = '_vi_big_g'
+        vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode']}
 
     return vi_cmd_data
 
@@ -124,9 +50,13 @@ def vi_gg(vi_cmd_data):
         vi_cmd_data['motion']['command'] = 'vi_go_to_line'
         vi_cmd_data['motion']['args'] = {'line': target, 'mode': vi_cmd_data['mode']}
     else:
-        vi_cmd_data['motion']['command'] = 'move_to'
-        vi_cmd_data['motion']['args'] = {'to': 'bof'}
-        vi_cmd_data['post_motion'] = [['clip_end_to_line',],]
+        if vi_cmd_data['mode'] == MODE_VISUAL_BLOCK:
+            vi_cmd_data['motion']['command'] = 'no_op'
+            vi_cmd_data['motion']['args'] = {}
+        else:
+            vi_cmd_data['motion']['command'] = 'move_to'
+            vi_cmd_data['motion']['args'] = {'to': 'bof'}
+            vi_cmd_data['post_motion'] = [['clip_end_to_line',],]
 
     if vi_cmd_data['mode'] == MODE_VISUAL:
         vi_cmd_data['motion']['args']['extend'] = True
@@ -159,6 +89,9 @@ def vi_zero(vi_cmd_data):
             vi_cmd_data['motion']['args']['extend'] = True
         elif vi_cmd_data['mode'] == _MODE_INTERNAL_NORMAL:
             vi_cmd_data['motion']['args']['extend'] = True
+        elif vi_cmd_data['mode'] == MODE_VISUAL_BLOCK:
+            vi_cmd_data['motion']['command'] = 'no_op'
+            vi_cmd_data['motion']['args'] = {}
 
         # TODO: Unify handling of the 'extend' argument. All VISUAL modes need it, so either include
         # it by default at some point, or let each command decide, as we do here.
@@ -182,6 +115,9 @@ def vi_underscore(vi_cmd_data):
             vi_cmd_data['motion']['args'] = {}
             vi_cmd_data['pre_motion'] = ['move_to', {'to': 'hardbol', 'extend': True}]
             vi_cmd_data['post_motion'] = [['_vi_underscore_post_motion',],]
+        elif vi_cmd_data['mode'] == MODE_VISUAL_BLOCK:
+            vi_cmd_data['motion']['command'] = 'vi_no_op'
+            vi_cmd_data['motion']['args'] = {}
         else:
             vi_cmd_data['motion']['command'] = 'move_to'
             vi_cmd_data['pre_motion'] = ['_vi_underscore_pre_motion', {'mode': vi_cmd_data['mode']}]
@@ -207,12 +143,15 @@ def vi_underscore(vi_cmd_data):
         elif vi_cmd_data['mode'] == MODE_VISUAL:
             vi_cmd_data['motion']['args']['extend'] = True
             vi_cmd_data['post_motion'] = [['_vi_underscore_post_motion', {'mode': vi_cmd_data['mode'], 'extend': True}],]
+        elif vi_cmd_data['mode'] == MODE_VISUAL_BLOCK:
+            vi_cmd_data['motion']['command'] = 'vi_no_op'
+            vi_cmd_data['motion']['args'] = {}
 
     return vi_cmd_data
 
 
 def vi_l(vi_cmd_data):
-    vi_cmd_data['motion']['command'] = '_vi_l_motion'
+    vi_cmd_data['motion']['command'] = '_vi_l'
     vi_cmd_data['motion']['args'] = {'count': vi_cmd_data['count'], 'mode': vi_cmd_data['mode']}
     vi_cmd_data['count'] = 1
 
@@ -220,7 +159,7 @@ def vi_l(vi_cmd_data):
 
 
 def vi_h(vi_cmd_data):
-    vi_cmd_data['motion']['command'] = '_vi_h_motion'
+    vi_cmd_data['motion']['command'] = '_vi_h'
     vi_cmd_data['motion']['args'] = {'count': vi_cmd_data['count'], 'mode': vi_cmd_data['mode']}
     vi_cmd_data['count'] = 1
 
@@ -265,7 +204,7 @@ def vi_j(vi_cmd_data):
 
     vi_cmd_data['must_update_xpos'] = False
 
-    vi_cmd_data['motion']['command'] = '_vi_j_motion'
+    vi_cmd_data['motion']['command'] = '_vi_j'
     vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count'], 'xpos': vi_cmd_data['xpos']}
     vi_cmd_data['count'] = 1
     # We handle this on our own?
@@ -281,7 +220,7 @@ def vi_k(vi_cmd_data):
 
     vi_cmd_data['must_update_xpos'] = False
 
-    vi_cmd_data['motion']['command'] = '_vi_k_motion'
+    vi_cmd_data['motion']['command'] = '_vi_k'
     vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count'], 'xpos': vi_cmd_data['xpos']}
     vi_cmd_data['count'] = 1
     vi_cmd_data['scroll_into_view'] = True
@@ -292,21 +231,12 @@ def vi_k(vi_cmd_data):
 
 
 def vi_w(vi_cmd_data):
-    vi_cmd_data['__reorient_caret'] = True
-    vi_cmd_data['motion']['command'] = 'move'
-    # XXX What's clip_to_line doing?
-    vi_cmd_data['motion']['args'] = {'by': 'stops', 'word_begin': True, 'punct_begin': True, 'empty_line': True, 'forward': True, 'clip_to_line': True}
-
-    if vi_cmd_data['mode'] == MODE_VISUAL:
-        vi_cmd_data['pre_every_motion'] = ['_vi_w_pre_every_motion',]
-        vi_cmd_data['motion']['args']['extend'] = True
-        vi_cmd_data['post_every_motion'] = ['_vi_w_post_every_motion',]
-
-    elif vi_cmd_data['mode'] == _MODE_INTERNAL_NORMAL:
-        vi_cmd_data['last_motion'] = ['_vi_w_last_motion', {'mode': vi_cmd_data['mode']}]
-        vi_cmd_data['motion']['args']['extend'] = True
+    vi_cmd_data['motion']['command'] = '_vi_w'
+    vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count']}
+    vi_cmd_data['count'] = 1
 
     return vi_cmd_data
+
 
 def vi_b(vi_cmd_data):
     # FIXME: b is a huge mess. Fix it.
@@ -320,33 +250,17 @@ def vi_b(vi_cmd_data):
         vi_cmd_data['pre_every_motion'] = ['_vi_b_pre_motion', {'mode': vi_cmd_data['mode'],}]
         vi_cmd_data['post_every_motion'] = ['_vi_b_post_every_motion', {'mode': vi_cmd_data['mode']}]
         vi_cmd_data['motion']['args']['extend'] = True
+    elif vi_cmd_data['mode'] == MODE_VISUAL_BLOCK:
+        vi_cmd_data['motion']['command'] = 'vi_no_op'
+        vi_cmd_data['motion']['args'] = {}
 
     return vi_cmd_data
 
 
 def vi_e(vi_cmd_data):
-    # NORMAL mode movement:
-    #   ST does what Vim does (TODO: always?).
-    #
-    # _MODE_INTERNAL_NORMAL
-    #
-    vi_cmd_data['motion']['command'] = 'move'
-    vi_cmd_data['motion']['args'] = {'by': 'stops', 'word_end': True, 'punct_end': True, 'empty_line': False, 'forward': True}
-    vi_cmd_data['__reorient_caret'] = True
-
-    if vi_cmd_data['mode'] == _MODE_INTERNAL_NORMAL:
-        vi_cmd_data['motion']['args']['extend'] = True
-        vi_cmd_data['pre_motion'] = ['_vi_e_pre_motion', {'mode': vi_cmd_data['mode']}]
-        vi_cmd_data['post_every_motion'] = ['_vi_e_post_every_motion', {'mode': vi_cmd_data['mode']}]
-
-    elif vi_cmd_data['mode'] == MODE_NORMAL:
-        vi_cmd_data['pre_motion'] = ['_vi_e_pre_motion', {'mode': vi_cmd_data['mode']}]
-        vi_cmd_data['post_every_motion'] = ['_vi_e_post_every_motion', {'mode': vi_cmd_data['mode']}]
-
-    elif vi_cmd_data['mode'] == MODE_VISUAL:
-        vi_cmd_data['motion']['args']['extend'] = True
-        vi_cmd_data['pre_motion'] = ['_vi_e_pre_motion', {'mode': vi_cmd_data['mode']}]
-        vi_cmd_data['post_every_motion'] = ['_vi_e_post_every_motion', {'mode': vi_cmd_data['mode']}]
+    vi_cmd_data['motion']['command'] = '_vi_e'
+    vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count']}
+    vi_cmd_data['count'] = 1
 
     return vi_cmd_data
 
@@ -370,6 +284,10 @@ def vi_g_e(vi_cmd_data):
         vi_cmd_data['motion']['args']['extend'] = True
         vi_cmd_data['pre_motion'] = ['_vi_g_e_pre_motion', {'mode': vi_cmd_data['mode']}]
         vi_cmd_data['post_motion'] = [['_vi_g_e_post_motion', {'mode': vi_cmd_data['mode']}]]
+
+    elif vi_cmd_data['mode'] == MODE_VISUAL_BLOCK:
+        vi_cmd_data['motion']['command'] = 'vi_no_op'
+        vi_cmd_data['motion']['args'] = {}
 
     return vi_cmd_data
 
@@ -491,35 +409,25 @@ def vi_big_n(vi_cmd_data):
 
 
 def vi_semicolon(vi_cmd_data):
-    vi_cmd_data['motion']['command'] = 'vi_find_in_line_inclusive'
-    vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count'], 'character': vi_cmd_data['last_character_search']}
+    vi_cmd_data['motion']['command'] = 'vi_find_in_line_inclusive' if vi_cmd_data['last_character_search_forward'] else 'vi_reverse_find_in_line_inclusive'
+    vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count'], 'character': vi_cmd_data['last_character_search'], 'change_direction': False}
     vi_cmd_data['count'] = 1
 
     return vi_cmd_data
 
 
 def vi_comma(vi_cmd_data):
-    vi_cmd_data['motion']['command'] = 'vi_reverse_find_in_line_inclusive'
-    vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count'], 'character': vi_cmd_data['last_character_search']}
+    vi_cmd_data['motion']['command'] = 'vi_reverse_find_in_line_inclusive' if vi_cmd_data['last_character_search_forward'] else 'vi_find_in_line_inclusive'
+    vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count'], 'character': vi_cmd_data['last_character_search'], 'change_direction': False}
     vi_cmd_data['count'] = 1
 
     return vi_cmd_data
 
 
 def vi_big_w(vi_cmd_data):
-    vi_cmd_data['__reorient_caret'] = True
-    vi_cmd_data['motion']['command'] = 'move'
-    vi_cmd_data['motion']['args'] = {'by': 'stops', 'word_begin': True, 'empty_line': True, 'separators': '', 'forward': True}
-    vi_cmd_data['post_every_motion'] = ['_vi_w_post_every_motion',]
-
-    if vi_cmd_data['mode'] == MODE_VISUAL:
-        vi_cmd_data['pre_every_motion'] = ['_vi_w_pre_every_motion',]
-        vi_cmd_data['motion']['args']['extend'] = True
-        vi_cmd_data['post_every_motion'] = ['_vi_w_post_every_motion',]
-
-    elif vi_cmd_data['mode'] == _MODE_INTERNAL_NORMAL:
-        vi_cmd_data['last_motion'] = ['_vi_big_w_last_motion', {'mode': vi_cmd_data['mode']}]
-        vi_cmd_data['motion']['args']['extend'] = True
+    vi_cmd_data['motion']['command'] = '_vi_big_w'
+    vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count']}
+    vi_cmd_data['count'] = 1
 
     return vi_cmd_data
 
@@ -548,6 +456,10 @@ def vi_big_e(vi_cmd_data):
         vi_cmd_data['pre_motion'] = ['_vi_e_pre_motion', {'mode': vi_cmd_data['mode']}]
         vi_cmd_data['post_every_motion'] = ['_vi_e_post_every_motion', {'mode': vi_cmd_data['mode']}]
 
+    elif vi_cmd_data['mode'] == MODE_VISUAL_BLOCK:
+        vi_cmd_data['motion']['command'] = 'vi_no_op'
+        vi_cmd_data['motion']['args'] = {}
+
     return vi_cmd_data
 
 
@@ -564,6 +476,10 @@ def vi_big_b(vi_cmd_data):
         vi_cmd_data['pre_every_motion'] = ['_vi_b_pre_motion', {'mode': vi_cmd_data['mode']}]
         vi_cmd_data['motion']['args']['extend'] = True
         vi_cmd_data['post_every_motion'] = ['_vi_b_post_every_motion', {'mode': vi_cmd_data['mode']}]
+
+    elif vi_cmd_data['mode'] == MODE_VISUAL_BLOCK:
+        vi_cmd_data['motion']['command'] = 'vi_no_op'
+        vi_cmd_data['motion']['args'] = {}
 
     return vi_cmd_data
 
@@ -634,6 +550,9 @@ def vi_ctrl_f(vi_cmd_data):
         # vi_cmd_data['motion']['args']['extend'] = True
         vi_cmd_data['motion']['command'] = 'vi_no_op'
         vi_cmd_data['motion']['args'] = {}
+    elif vi_cmd_data['mode'] == MODE_VISUAL_BLOCK:
+        vi_cmd_data['motion']['command'] = 'vi_no_op'
+        vi_cmd_data['motion']['args'] = {}
 
     return vi_cmd_data
 
@@ -665,7 +584,7 @@ def vi_g_octothorp(vi_cmd_data):
 
 def vi_enter(vi_cmd_data):
     # TODO: Improve post_motion: should leave caret at first non-white space char.
-    vi_cmd_data['motion']['command'] = '_vi_j_motion'
+    vi_cmd_data['motion']['command'] = '_vi_j'
     vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': 1, 'xpos': 0}
     vi_cmd_data['post_action'] = ['_vi_move_caret_to_first_non_white_space_character', {'mode': vi_cmd_data['mode']}]
 
@@ -676,7 +595,7 @@ def vi_enter(vi_cmd_data):
 
 
 def vi_shift_enter(vi_cmd_data):
-    vi_cmd_data['motion']['command'] = '_vi_k_motion'
+    vi_cmd_data['motion']['command'] = '_vi_k'
     vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': 1, 'xpos': 0}
     vi_cmd_data['post_motion'] = [['_vi_shift_enter_post_motion', {'mode': vi_cmd_data['mode']}]]
 
