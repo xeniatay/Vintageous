@@ -2,6 +2,8 @@ import sublime
 import sublime_plugin
 
 import threading
+import os
+import stat
 
 from Vintageous.vi import actions
 from Vintageous.vi import constants
@@ -155,20 +157,36 @@ class VintageState(object):
         else:
             # Either we haven't been in any visual mode or we've modified the buffer while in
             # any visual mode.
-            self.view.run_command('glue_marked_undo_groups')
+            #
+            # However, there might be cases where we have a clean buffer. For example, we might
+            # have undone our changes, or saved via standard commands. Assume Sublime Text knows
+            # better than us.
+            #
+            # NOTE: There's an issue in S3 where 'glue_marked_undo_groups' will mark the buffer as
+            # dirty even if there are no intervening changes between the 'mark_groups_for_gluing'
+            # and 'glue_marked_undo_groups' calls. That's why we need to explicitly unmark groups
+            # here if the view reports back as clean.
+            if not self.view.is_dirty():
+                self.view.run_command('unmark_undo_groups_for_gluing')
+            else:
+                self.view.run_command('glue_marked_undo_groups')
 
         self.mode = MODE_NORMAL
+        self.display_partial_command()
 
     def enter_visual_line_mode(self):
         self.mode = MODE_VISUAL_LINE
+        self.display_partial_command()
 
     def enter_select_mode(self):
         self.mode = MODE_SELECT
+        self.display_partial_command()
 
     def enter_insert_mode(self):
         self.settings.view['command_mode'] = False
         self.settings.view['inverse_caret_state'] = False
         self.mode = MODE_INSERT
+        self.display_partial_command()
 
     def enter_visual_mode(self):
         self.mode = MODE_VISUAL
@@ -181,12 +199,14 @@ class VintageState(object):
         self.mode = MODE_NORMAL_INSERT
         self.settings.view['command_mode'] = False
         self.settings.view['inverse_caret_state'] = False
+        self.display_partial_command()
 
     def enter_replace_mode(self):
         self.mode = MODE_REPLACE
         self.settings.view['command_mode'] = False
         self.settings.view['inverse_caret_state'] = False
         self.view.set_overwrite_status(True)
+        self.display_partial_command()
 
     def store_visual_selections(self):
         self.view.add_regions('vi_visual_selections', list(self.view.sel()))
@@ -388,6 +408,10 @@ class VintageState(object):
         # the catch-all key binding for user input should have intercepted it.
         if self.expecting_user_input and name == 'vi_enter':
             self.view.run_command('collect_user_input', {'character': '\n'})
+        # XXX: The user pressed backspace. This won't work if the user has remapped the key binding.
+        # We should cancel if the user presses, for example, f<Backspace>.
+        elif self.expecting_user_input and name == 'vi_h':
+            self.cancel_action = True
             return
 
         # Check for digraphs like gg in dgg.
@@ -671,10 +695,15 @@ class VintageState(object):
             self.xpos = xpos
             vi_cmd_data['xpos'] = xpos
 
+        # Fake visual mode. The user has selected text outside of Vintageous' own means.
+        # XXX: I'm not sure this will always be correct wrt newlines. We should maybe ensure we
+        # are within the requirements for visual mode.
+        if self.action and (self.mode == MODE_NORMAL) and not utils.has_empty_selection(self.view):
+            vi_cmd_data['mode'] = MODE_VISUAL
         # Actions originating in normal mode are run in a pseudomode that helps to distiguish
         # between visual mode and this case (both use selections, either implicitly or
         # explicitly).
-        if self.action and (self.mode == MODE_NORMAL):
+        elif self.action and (self.mode == MODE_NORMAL):
             vi_cmd_data['mode'] = _MODE_INTERNAL_NORMAL
 
         motion = self.motion
@@ -723,16 +752,23 @@ class VintageState(object):
     def eval_cancel_action(self):
         """Cancels the whole run of the command.
         """
-        # TODO: add a .parse() method that includes boths steps?
-        vi_cmd_data = self.parse_motion()
-        vi_cmd_data = self.parse_action(vi_cmd_data)
-        if vi_cmd_data['must_blink_on_error']:
-            utils.blink()
-        # Modify the data that determines the mode we'll end up in when the command finishes.
-        self.next_mode = vi_cmd_data['_exit_mode']
-        # Since we are exiting early, ensure we leave the selections as the commands wants them.
-        if vi_cmd_data['_exit_mode_command']:
-            self.view.run_command(vi_cmd_data['_exit_mode_command'])
+        try:
+            vi_cmd_data = self.parse_motion()
+            vi_cmd_data = self.parse_action(vi_cmd_data)
+            # XXX: Perhaps the command data wants a specific exit mode.
+            self.next_mode = vi_cmd_data['_exit_mode']
+            # Ensure we clean up selections as the command wants.
+            if vi_cmd_data['_exit_mode_command']:
+                self.view.run_command(vi_cmd_data['_exit_mode_command'])
+        except TypeError as te:
+            # Occurs when an action is missing from VintageState. It's normal
+            # if we are cancelling an incomplete command.
+            # XXX: Maybe it should be a ValueError instead?
+            pass
+        except Exception as e:
+            # Swallow all exceptions because we have to abort the command anyway.
+            print("Vintageous: Unexpected exception caught in 'eval_cancel_action:")
+            print(e)
 
     def eval_full_command(self):
         """Evaluates a command like 3dj, where there is an action as well as a motion.
@@ -838,6 +874,8 @@ class VintageState(object):
         self.expecting_register = False
         self.expecting_user_input = False
         self.cancel_action = False
+
+        sublime.set_timeout(lambda: self.view.erase_regions('vi_training_wheels'), 300)
 
         # In MODE_NORMAL_INSERT, we temporarily exit NORMAL mode, but when we get back to
         # it, we need to know the repeat digits, so keep them. An example command for this case
@@ -960,6 +998,18 @@ class ViFocusRestorerEvent(sublime_plugin.EventListener):
         else:
             # Switching back from another application. Ignore.
             pass
+
+    def on_new(self, view):
+        # Without this, on OS X Vintageous might not initialize correctly if the user leaves
+        # the application in a windowless state and then creates a new buffer.
+        if sublime.platform() == 'osx':
+            _init_vintageous(view)
+
+    def on_load(self, view):
+        # Without this, on OS X Vintageous might not initialize correctly if the user leaves
+        # the application in a windowless state and then creates a new buffer.
+        if sublime.platform() == 'osx':
+            _init_vintageous(view)
 
     def on_deactivated(self, view):
         self.timer = threading.Timer(0.25, self.action)

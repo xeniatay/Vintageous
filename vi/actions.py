@@ -22,13 +22,15 @@ from Vintageous.vi.constants import MODE_VISUAL_BLOCK
 
 def vi_enter_visual_mode(vi_cmd_data):
     vi_cmd_data['motion_required'] = False
+    vi_cmd_data['keep_selection_as_is'] = True
     vi_cmd_data['action']['command'] = 'vi_enter_visual_mode'
-    vi_cmd_data['action']['args'] = {}
+    vi_cmd_data['action']['args'] = {'count': vi_cmd_data['count']}
     return vi_cmd_data
 
 
 def vi_enter_select_mode(vi_cmd_data):
     vi_cmd_data['motion_required'] = False
+    vi_cmd_data['keep_selection_as_is'] = True
     vi_cmd_data['action']['command'] = 'vi_enter_select_mode'
     vi_cmd_data['action']['args'] = {}
     return vi_cmd_data
@@ -36,6 +38,7 @@ def vi_enter_select_mode(vi_cmd_data):
 
 def vi_enter_normal_mode(vi_cmd_data):
     vi_cmd_data['motion_required'] = False
+    vi_cmd_data['keep_selection_as_is'] = True
     vi_cmd_data['action']['command'] = 'vi_enter_normal_mode'
     vi_cmd_data['action']['args'] = {}
     return vi_cmd_data
@@ -44,6 +47,7 @@ def vi_enter_normal_mode(vi_cmd_data):
 def vi_enter_visual_line_mode(vi_cmd_data):
     vi_cmd_data['motion_required'] = False
     # TODO: This seems to be duplicated during this command's full run.
+    vi_cmd_data['keep_selection_as_is'] = True
     vi_cmd_data['action']['command'] = 'vi_enter_visual_line_mode'
     vi_cmd_data['action']['args'] = {}
     vi_cmd_data['post_action'] = ['visual_extend_to_full_line',]
@@ -52,6 +56,7 @@ def vi_enter_visual_line_mode(vi_cmd_data):
 
 def vi_enter_visual_block_mode(vi_cmd_data):
     vi_cmd_data['motion_required'] = False
+    vi_cmd_data['keep_selection_as_is'] = True
     vi_cmd_data['action']['command'] = 'vi_enter_visual_block_mode'
     vi_cmd_data['action']['args'] = {}
     return vi_cmd_data
@@ -112,8 +117,10 @@ def vi_d(vi_cmd_data):
 
 def vi_visual_o(vi_cmd_data):
     vi_cmd_data['motion_required'] = True
-    vi_cmd_data['action']['command'] = 'vi_reverse_caret'
-    vi_cmd_data['action']['args'] = {}
+    vi_cmd_data['keep_selection_as_is'] = True
+    vi_cmd_data['action']['command'] = '_vi_visual_o'
+    vi_cmd_data['count'] = 1
+    vi_cmd_data['action']['args'] = {'mode': vi_cmd_data['mode']}
 
     return vi_cmd_data
 
@@ -138,17 +145,20 @@ def vi_big_o(vi_cmd_data):
 
 
 def vi_big_a(vi_cmd_data):
+    vi_cmd_data['keep_selection_as_is'] = True
     vi_cmd_data['motion_required'] = False
-    vi_cmd_data['action']['command'] = 'vi_edit_at_eol'
-    vi_cmd_data['action']['args'] = {}
+    vi_cmd_data['action']['command'] = '_vi_big_a'
+    vi_cmd_data['action']['args'] = {'mode': vi_cmd_data['mode']}
 
     return vi_cmd_data
 
 
 def vi_big_i(vi_cmd_data):
+    # TOOD: Add next mode here instead of in the command implementation?
+    vi_cmd_data['keep_selection_as_is'] = True
     vi_cmd_data['motion_required'] = False
     vi_cmd_data['action']['command'] = '_vi_big_i'
-    vi_cmd_data['action']['args'] = {}
+    vi_cmd_data['action']['args'] = {'mode': vi_cmd_data['mode']}
 
     return vi_cmd_data
 
@@ -242,12 +252,13 @@ def vi_big_c(vi_cmd_data):
 def vi_big_d(vi_cmd_data):
     vi_cmd_data['can_yank'] = True
     vi_cmd_data['populates_small_delete_register'] = True
+    vi_cmd_data['cancel_action_if_motion_fails'] = True
 
     # TODO: Use separate if branches for each mode.
 
     if vi_cmd_data['count'] == 1:
-        vi_cmd_data['motion']['command'] = 'move_to'
-        vi_cmd_data['motion']['args'] = {'to': 'eol', 'extend': True}
+        vi_cmd_data['motion']['command'] = '_vi_big_d_motion'
+        vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count']}
 
         vi_cmd_data['motion_required'] = False
         vi_cmd_data['action']['command'] = 'right_delete'
@@ -339,8 +350,10 @@ def vi_big_x(vi_cmd_data):
 
 
 def vi_p(vi_cmd_data):
+    # This command must yank, but we have to deal with it in the command itself, as setting the
+    # registers via 'can_yank' would overwrite the content we're about to paste.
     vi_cmd_data['motion_required'] = False
-    vi_cmd_data['action']['command'] = 'vi_paste'
+    vi_cmd_data['action']['command'] = '_vi_p'
     vi_cmd_data['action']['args'] = {'count': vi_cmd_data['count'], 'register': vi_cmd_data['register']}
     # XXX: Since actions perform the actual edits to the buffer, they too should be in charge of
     # readjusting the selections? I think that would be better than the current approach.
@@ -355,12 +368,14 @@ def vi_p(vi_cmd_data):
 
 
 def vi_big_p(vi_cmd_data):
+    # This command must yank, but we have to deal with it in the command itself, as setting the
+    # registers via 'can_yank' would overwrite the content we're about to paste.
     vi_cmd_data['motion_required'] = False
-    vi_cmd_data['action']['command'] = 'vi_paste_before'
+    vi_cmd_data['action']['command'] = '_vi_big_p'
     vi_cmd_data['action']['args'] = {'count': vi_cmd_data['count'], 'register': vi_cmd_data['register']}
 
     if vi_cmd_data['mode'] == MODE_VISUAL:
-        vi_cmd_data['post_action'] = ['collapse_to_a',]
+        # vi_cmd_data['post_action'] = ['collapse_to_a',]
         vi_cmd_data['follow_up_mode'] = 'vi_enter_normal_mode'
 
     return vi_cmd_data
@@ -369,15 +384,17 @@ def vi_big_p(vi_cmd_data):
 def vi_dd(vi_cmd_data):
     # Assume _MODE_INTERNAL_NORMAL. Can't be issued in any other mode.
     vi_cmd_data['can_yank'] = True
-    vi_cmd_data['motion']['command'] = 'move'
-    vi_cmd_data['motion']['args'] = {'by': 'lines', 'extend': True, 'forward': True}
+    vi_cmd_data['yanks_linewise'] = True
     vi_cmd_data['motion_required'] = False
-    vi_cmd_data['pre_motion'] = ['_vi_dd_pre_motion', {'mode': vi_cmd_data['mode']}]
-    vi_cmd_data['post_motion'] = [['_vi_dd_post_motion', {'mode': vi_cmd_data['mode']}],]
-    vi_cmd_data['action']['command'] = 'left_delete'
-    vi_cmd_data['action']['args'] = {}
-    vi_cmd_data['post_action'] = ['_vi_move_caret_to_first_non_white_space_character', {'mode': vi_cmd_data['mode']}]
+
+    vi_cmd_data['motion']['command'] = '_vi_dd_motion'
+    vi_cmd_data['motion']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count']}
+    vi_cmd_data['count'] = 1
+
+    vi_cmd_data['action']['command'] = '_vi_dd_action'
+    vi_cmd_data['action']['args'] = {'mode': vi_cmd_data['mode']}
     vi_cmd_data['follow_up_mode'] = 'vi_enter_normal_mode'
+    vi_cmd_data['next_mode'] = MODE_NORMAL
 
     return vi_cmd_data
 
@@ -402,6 +419,7 @@ def vi_cc(vi_cmd_data):
 
 def vi_y(vi_cmd_data):
     vi_cmd_data['motion_required'] = True
+    vi_cmd_data['has_training_wheels'] = True
     vi_cmd_data['can_yank'] = True
     vi_cmd_data['restore_original_carets'] = True
     # The yanked text will be put in the clipboard if needed. This command shouldn't do any action.
@@ -422,6 +440,7 @@ def vi_yy(vi_cmd_data):
     # Assume NORMALMODE.
     # FIXME: Cannot copy (or maybe pasting is the problem) one empty line only.
     vi_cmd_data['mode'] = _MODE_INTERNAL_NORMAL
+    vi_cmd_data['has_training_wheels'] = True
     vi_cmd_data['motion_required'] = False
     vi_cmd_data['restore_original_carets'] = True
 
@@ -462,6 +481,7 @@ def vi_g_action(vi_cmd_data):
 
 def vi_g_big_u(vi_cmd_data):
     vi_cmd_data['motion_required'] = True
+    vi_cmd_data['has_training_wheels'] = True
     vi_cmd_data['action']['command'] = 'upper_case'
     vi_cmd_data['action']['args'] = {}
     vi_cmd_data['post_action'] = ['collapse_to_a',]
@@ -472,6 +492,7 @@ def vi_g_big_u(vi_cmd_data):
 
 def vi_g_u(vi_cmd_data):
     vi_cmd_data['motion_required'] = True
+    vi_cmd_data['has_training_wheels'] = True
     vi_cmd_data['action']['command'] = 'lower_case'
     vi_cmd_data['action']['args'] = {}
     vi_cmd_data['post_action'] = ['collapse_to_a',]
@@ -586,14 +607,9 @@ def vi_double_lambda(vi_cmd_data):
 
 def vi_double_antilambda(vi_cmd_data):
     # Assume _MODE_INTERNAL_NORMAL.
-    if vi_cmd_data['count'] > 1:
-        vi_cmd_data['motion']['command'] = 'move'
-        vi_cmd_data['motion']['args'] = {'by': 'lines', 'extend': True, 'forward': True}
-
     vi_cmd_data['motion_required'] = False
-    vi_cmd_data['action']['command'] = 'unindent'
-    vi_cmd_data['action']['args'] = {}
-    vi_cmd_data['post_action'] = ['collapse_to_a',]
+    vi_cmd_data['action']['command'] = '_vi_double_antilambda'
+    vi_cmd_data['action']['args'] = {'mode': _MODE_INTERNAL_NORMAL, 'count': vi_cmd_data['count']}
     vi_cmd_data['follow_up_mode'] = 'vi_enter_normal_mode'
 
     return vi_cmd_data
@@ -603,10 +619,12 @@ def vi_r(vi_cmd_data):
     # TODO: If count > len(line), r should abort. We'd need _p_post_every_motion hook and tell
     # ViRun to cancel if selections didn't change.
     vi_cmd_data['motion_required'] = False
-    vi_cmd_data['motion']['command'] = 'move'
-    vi_cmd_data['motion']['args'] = {'by': 'characters', 'extend': True, 'forward': True}
+    if vi_cmd_data['mode'] == _MODE_INTERNAL_NORMAL:
+        vi_cmd_data['motion']['command'] = 'move'
+        vi_cmd_data['motion']['args'] = {'by': 'characters', 'extend': True, 'forward': True}
     vi_cmd_data['action']['command'] = '_vi_r'
     vi_cmd_data['action']['args'] = {'character': vi_cmd_data['user_action_input'], 'mode': vi_cmd_data['mode']}
+
     vi_cmd_data['follow_up_mode'] = 'vi_enter_normal_mode'
 
     return vi_cmd_data
@@ -641,11 +659,27 @@ def vi_antilambda(vi_cmd_data):
 def vi_big_j(vi_cmd_data):
     vi_cmd_data['motion_required'] = False
 
+    if vi_cmd_data['mode'] in (_MODE_INTERNAL_NORMAL, MODE_VISUAL):
+        vi_cmd_data['count'] = (vi_cmd_data['count'] or 1)
+        vi_cmd_data['action']['command'] = '_vi_big_j'
+        vi_cmd_data['action']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count']}
+    else:
+        vi_cmd_data['action']['command'] = 'no_op'
+        vi_cmd_data['action']['args'] = {}
+
+    vi_cmd_data['follow_up_mode'] = 'vi_enter_normal_mode'
+
+    return vi_cmd_data
+
+
+def vi_g_big_j(vi_cmd_data):
+    vi_cmd_data['motion_required'] = False
+
     if vi_cmd_data['mode'] == _MODE_INTERNAL_NORMAL:
         vi_cmd_data['_repeat_action'] = True
         vi_cmd_data['count'] = (vi_cmd_data['count'] - 1 or 1)
         vi_cmd_data['action']['command'] = '_vi_big_j'
-        vi_cmd_data['action']['args'] = {'mode': vi_cmd_data['mode']}
+        vi_cmd_data['action']['args'] = {'mode': vi_cmd_data['mode'], 'separator': None}
     else:
         vi_cmd_data['action']['command'] = 'no_op'
         vi_cmd_data['action']['args'] = {}
@@ -740,7 +774,7 @@ def vi_ctrl_r_equals(vi_cmd_data):
 def vi_ctrl_a(vi_cmd_data):
     vi_cmd_data['motion_required'] = False
 
-    vi_cmd_data['action']['command'] = '_vi_ctrl_a'
+    vi_cmd_data['action']['command'] = '_vi_modify_numbers'
     vi_cmd_data['action']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count']}
     vi_cmd_data['count'] = 1
 
@@ -750,8 +784,8 @@ def vi_ctrl_a(vi_cmd_data):
 def vi_ctrl_x(vi_cmd_data):
     vi_cmd_data['motion_required'] = False
 
-    vi_cmd_data['action']['command'] = '_vi_ctrl_x'
-    vi_cmd_data['action']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count']}
+    vi_cmd_data['action']['command'] = '_vi_modify_numbers'
+    vi_cmd_data['action']['args'] = {'mode': vi_cmd_data['mode'], 'count': vi_cmd_data['count'], 'subtract': True}
     vi_cmd_data['count'] = 1
 
     return vi_cmd_data
@@ -759,6 +793,7 @@ def vi_ctrl_x(vi_cmd_data):
 
 def vi_esc(vi_cmd_data):
     vi_cmd_data['motion_required'] = False
+    vi_cmd_data['keep_selection_as_is'] = True
     if vi_cmd_data['mode'] == MODE_NORMAL_INSERT:
         vi_cmd_data['action']['command'] = 'vi_run_normal_insert_mode_actions'
         vi_cmd_data['action']['args'] = {}
@@ -839,7 +874,7 @@ def vi_equals_equals(vi_cmd_data):
 
     # The yanked text will be put in the clipboard if needed. This command shouldn't do any action.
     vi_cmd_data['action']['command'] = 'reindent'
-    vi_cmd_data['action']['args'] = {}
+    vi_cmd_data['action']['args'] = {'force_indent': False}
 
     vi_cmd_data['follow_up_mode'] = 'vi_enter_normal_mode'
 
@@ -931,6 +966,8 @@ def vi_g_tilde(vi_cmd_data):
     vi_cmd_data['action']['args'] = {}
     vi_cmd_data['post_action'] = ['collapse_to_a',]
 
+    vi_cmd_data['follow_up_mode'] = 'vi_enter_normal_mode'
+
     return vi_cmd_data
 
 def vi_g_k(vi_cmd_data):
@@ -962,6 +999,8 @@ def vi_g_tilde_g_tilde(vi_cmd_data):
     vi_cmd_data['action']['command'] = '_vi_g_tilde_g_tilde'
     vi_cmd_data['action']['args'] = {'mode': vi_cmd_data['mode']}
     vi_cmd_data['post_action'] = ['collapse_to_a',]
+
+    vi_cmd_data['follow_up_mode'] = 'vi_enter_normal_mode'
 
     return vi_cmd_data
 

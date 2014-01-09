@@ -5,12 +5,11 @@ from Vintageous.vi.constants import MODE_NORMAL
 from Vintageous.vi.constants import MODE_VISUAL
 from Vintageous.vi.constants import MODE_VISUAL_LINE
 
-from Vintageous.tests.commands import set_text
-from Vintageous.tests.commands import add_selection
-from Vintageous.tests.commands import get_sel
-from Vintageous.tests.commands import first_sel
-from Vintageous.tests.commands import make_region_at_row
-from Vintageous.tests.commands import BufferTest
+from Vintageous.tests import set_text
+from Vintageous.tests import add_sel
+from Vintageous.tests import get_sel
+from Vintageous.tests import first_sel
+from Vintageous.tests import BufferTest
 
 
 # TODO: Test against folded regions.
@@ -19,72 +18,72 @@ from Vintageous.tests.commands import BufferTest
 class Test_vi_k_InNormalMode(BufferTest):
     def testMoveOne(self):
         set_text(self.view, 'abc\nabc\nabc')
-        add_selection(self.view, make_region_at_row(self.view, row=1, col=1, size=0))
+        add_sel(self.view, self.R((1, 1), (1, 1)))
 
         self.view.run_command('_vi_k', {'mode': MODE_NORMAL, 'count': 1, 'xpos': 1})
 
-        expected = make_region_at_row(self.view, row=0, col=1, size=0)
+        expected = self.R((0, 1), (0, 1))
         self.assertEqual(expected, first_sel(self.view))
 
     def testMoveMany(self):
         set_text(self.view, 'abc\nabc\nabc')
-        add_selection(self.view, make_region_at_row(self.view, row=2, col=1, size=0))
+        add_sel(self.view, self.R(2, 1), (2, 1))
 
         self.view.run_command('_vi_k', {'mode': MODE_NORMAL, 'count': 2, 'xpos': 1})
 
-        expected = make_region_at_row(self.view, row=0, col=1, size=0)
+        expected = self.R((0, 1), (0, 1))
         self.assertEqual(expected, first_sel(self.view))
 
     def testMoveOntoLongerLine(self):
         set_text(self.view, 'foo bar\nfoo')
-        add_selection(self.view, make_region_at_row(self.view, row=1, col=1, size=0))
+        add_sel(self.view, self.R((1, 1), (1, 1)))
 
         self.view.run_command('_vi_k', {'mode': MODE_NORMAL, 'count': 1, 'xpos': 1})
 
-        expected = make_region_at_row(self.view, row=0, col=1, size=0)
+        expected = self.R((0, 1), (0, 1))
         self.assertEqual(expected, first_sel(self.view))
 
     def testMoveOntoShorterLine(self):
         set_text(self.view, 'foo\nfoo bar')
-        add_selection(self.view, make_region_at_row(self.view, row=1, col=5, size=0))
+        add_sel(self.view, self.R((1, 5), (1, 5)))
 
         self.view.run_command('_vi_k', {'mode': MODE_NORMAL, 'count': 1, 'xpos': 5})
 
-        expected = make_region_at_row(self.view, row=0, col=2, size=0)
+        expected = self.R((0, 2), (0, 2))
         self.assertEqual(expected, first_sel(self.view))
 
     def testMoveFromEmptyLine(self):
         set_text(self.view, 'foo\n\n')
-        add_selection(self.view, make_region_at_row(self.view, row=1, col=0, size=0))
+        add_sel(self.view, self.R((1, 0), (1, 0)))
 
         self.view.run_command('_vi_k', {'mode': MODE_NORMAL, 'count': 1, 'xpos': 1})
 
-        expected = make_region_at_row(self.view, row=0, col=1, size=0)
+        expected = self.R((0, 1), (0, 1))
         self.assertEqual(expected, first_sel(self.view))
 
     def testMoveFromEmptyLineToEmptyLine(self):
         set_text(self.view, '\n\n\n')
-        add_selection(self.view, make_region_at_row(self.view, row=1, col=0, size=0))
+        add_sel(self.view, self.R((1, 0), (1, 0)))
 
         self.view.run_command('_vi_k', {'mode': MODE_NORMAL, 'count': 1, 'xpos': 0})
 
-        expected = make_region_at_row(self.view, row=0, col=0, size=0)
+        expected = self.R((0, 0), (0, 0))
         self.assertEqual(expected, first_sel(self.view))
 
     def testMoveTooFar(self):
         set_text(self.view, 'foo\nbar\nbaz\n')
-        add_selection(self.view, make_region_at_row(self.view, row=2, col=1, size=0))
+        add_sel(self.view, self.R((2, 1), (2, 1)))
 
         self.view.run_command('_vi_k', {'mode': MODE_NORMAL, 'count': 100, 'xpos': 1})
 
-        expected = make_region_at_row(self.view, row=0, col=1, size=0)
+        expected = self.R((0, 1), (0, 1))
         self.assertEqual(expected, first_sel(self.view))
 
 
 class Test_vi_k_InVisualMode(BufferTest):
     def testMoveOne(self):
         set_text(self.view, 'foo\nbar\nbaz\n')
-        add_selection(self.view, self.R((1, 1), (1, 2)))
+        add_sel(self.view, self.R((1, 1), (1, 2)))
 
         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 1, 'xpos': 2})
 
@@ -93,7 +92,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
     def testMoveOppositeEndGreaterWithSelOfSize1(self):
         set_text(self.view, 'foo\nbar\nbaz\n')
-        add_selection(self.view, self.R((2, 1), (2, 2)))
+        add_sel(self.view, self.R((2, 1), (2, 2)))
 
         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 1, 'xpos': 2})
 
@@ -102,7 +101,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
     def testMoveOppositeEndSmallerWithSelOfSize2(self):
         set_text(self.view, 'foo\nbar\nbaz\n')
-        add_selection(self.view, self.R((1, 1), (1, 3)))
+        add_sel(self.view, self.R((1, 1), (1, 3)))
 
         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 1, 'xpos': 3})
 
@@ -111,7 +110,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
     def testMoveOppositeEndSmallerWithSelOfSize3(self):
         set_text(self.view, 'foobar\nbarfoo\nbuzzfizz\n')
-        add_selection(self.view, self.R((1, 1), (1, 4)))
+        add_sel(self.view, self.R((1, 1), (1, 4)))
 
         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 1, 'xpos': 3})
 
@@ -120,7 +119,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
     def testMove_OppositeEndSmaller_DifferentLines_NoCrossOver(self):
         set_text(self.view, 'foo\nbar\nbaz\n')
-        add_selection(self.view, self.R((0, 1), (2, 1)))
+        add_sel(self.view, self.R((0, 1), (2, 1)))
 
         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 1, 'xpos': 1})
 
@@ -129,7 +128,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
     def testMove_OppositeEndSmaller_DifferentLines_CrossOver_XposAt0(self):
         set_text(self.view, 'foo\nbar\nbaz\n')
-        add_selection(self.view, self.R((1, 0), (2, 1)))
+        add_sel(self.view, self.R((1, 0), (2, 1)))
 
         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 2, 'xpos': 0})
 
@@ -138,7 +137,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
     def testMove_OppositeEndSmaller_DifferentLines_CrossOver_Non0Xpos(self):
         set_text(self.view, 'foo bar\nfoo bar\nfoo bar\n')
-        add_selection(self.view, self.R((1, 4), (2, 4)))
+        add_sel(self.view, self.R((1, 4), (2, 4)))
 
         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 2, 'xpos': 4})
 
@@ -147,7 +146,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
     def testMoveBackToSameLineSameXpos(self):
         set_text(self.view, 'foo\nbar\nbaz\n')
-        add_selection(self.view, self.R((0, 1), (1, 1)))
+        add_sel(self.view, self.R((0, 1), (1, 1)))
 
         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 1, 'xpos': 1})
 
@@ -156,7 +155,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
     def testMoveBackToSameLine_OppositeEndHasGreaterXpos(self):
         set_text(self.view, 'foo\nbar\nbaz\n')
-        add_selection(self.view, self.R((0, 2), (1, 0)))
+        add_sel(self.view, self.R((0, 2), (1, 0)))
 
         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 1, 'xpos': 0})
 
@@ -165,7 +164,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
     def testMoveMany_OppositeEndGreater_FromSameLine(self):
         set_text(self.view, ''.join(('foo\n',) * 50))
-        add_selection(self.view, self.R((20, 2), (20, 1)))
+        add_sel(self.view, self.R((20, 2), (20, 1)))
 
         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 10, 'xpos': 1})
 
@@ -174,7 +173,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
     def testMoveMany_OppositeEndGreater_DifferentLines(self):
         set_text(self.view, ''.join(('foo\n',) * 50))
-        add_selection(self.view, self.R((21, 2), (20, 1)))
+        add_sel(self.view, self.R((21, 2), (20, 1)))
 
         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 10, 'xpos': 1})
 
@@ -183,7 +182,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveMany(self):
 #         set_text(self.view, ''.join(('abc\n',) * 60))
-#         add_selection(self.view, a=1, b=2)
+#         add_sel(self.view, a=1, b=2)
 
 #         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 50, 'xpos': 1})
 
@@ -194,7 +193,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveOntoLongerLine(self):
 #         set_text(self.view, 'foo\nfoo bar\nfoo bar')
-#         add_selection(self.view, a=1, b=2)
+#         add_sel(self.view, a=1, b=2)
 
 #         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 1, 'xpos': 1})
 
@@ -205,7 +204,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveOntoShorterLine(self):
 #         set_text(self.view, 'foo bar\nfoo\nbar')
-#         add_selection(self.view, a=5, b=6)
+#         add_sel(self.view, a=5, b=6)
 
 #         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 1, 'xpos': 5})
 
@@ -217,7 +216,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveFromEmptyLine(self):
 #         set_text(self.view, '\nfoo\nbar')
-#         add_selection(self.view, a=0, b=1)
+#         add_sel(self.view, a=0, b=1)
 
 #         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 1, 'xpos': 0})
 
@@ -228,7 +227,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveFromEmptyLineToEmptyLine(self):
 #         set_text(self.view, '\n\nbar')
-#         add_selection(self.view, a=0, b=1)
+#         add_sel(self.view, a=0, b=1)
 
 #         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 1, 'xpos': 0})
 
@@ -239,7 +238,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveTooFar(self):
 #         set_text(self.view, 'foo\nbar\nbaz')
-#         add_selection(self.view, a=1, b=2)
+#         add_sel(self.view, a=1, b=2)
 
 #         self.view.run_command('_vi_k', {'mode': MODE_VISUAL, 'count': 10000, 'xpos': 1})
 
@@ -253,7 +252,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 # class Test_vi_k_InInternalNormalMode(BufferTest):
 #     def testMoveOne(self):
 #         set_text(self.view, 'abc\nabc\nabc')
-#         add_selection(self.view, a=1, b=1)
+#         add_sel(self.view, a=1, b=1)
 
 #         self.view.run_command('_vi_k', {'mode': _MODE_INTERNAL_NORMAL, 'count': 1, 'xpos': 1})
 
@@ -265,7 +264,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveMany(self):
 #         set_text(self.view, ''.join(('abc\n',) * 60))
-#         add_selection(self.view, a=1, b=1)
+#         add_sel(self.view, a=1, b=1)
 
 #         self.view.run_command('_vi_k', {'mode': _MODE_INTERNAL_NORMAL, 'count': 50, 'xpos': 1})
 
@@ -277,7 +276,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveOntoLongerLine(self):
 #         set_text(self.view, 'foo\nfoo bar\nfoo bar')
-#         add_selection(self.view, a=1, b=1)
+#         add_sel(self.view, a=1, b=1)
 
 #         self.view.run_command('_vi_k', {'mode': _MODE_INTERNAL_NORMAL, 'count': 1, 'xpos': 1})
 
@@ -289,7 +288,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveOntoShorterLine(self):
 #         set_text(self.view, 'foo bar\nfoo\nbar')
-#         add_selection(self.view, a=5, b=5)
+#         add_sel(self.view, a=5, b=5)
 
 #         self.view.run_command('_vi_k', {'mode': _MODE_INTERNAL_NORMAL, 'count': 1, 'xpos': 5})
 
@@ -301,7 +300,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveFromEmptyLine(self):
 #         set_text(self.view, '\nfoo\nbar')
-#         add_selection(self.view, a=0, b=0)
+#         add_sel(self.view, a=0, b=0)
 
 #         self.view.run_command('_vi_k', {'mode': _MODE_INTERNAL_NORMAL, 'count': 1, 'xpos': 0})
 
@@ -313,7 +312,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveFromEmptyLineToEmptyLine(self):
 #         set_text(self.view, '\n\nbar')
-#         add_selection(self.view, a=0, b=0)
+#         add_sel(self.view, a=0, b=0)
 
 #         self.view.run_command('_vi_k', {'mode': _MODE_INTERNAL_NORMAL, 'count': 1, 'xpos': 0})
 
@@ -325,7 +324,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveTooFar(self):
 #         set_text(self.view, 'foo\nbar\nbaz')
-#         add_selection(self.view, a=1, b=1)
+#         add_sel(self.view, a=1, b=1)
 
 #         self.view.run_command('_vi_k', {'mode': _MODE_INTERNAL_NORMAL, 'count': 10000, 'xpos': 1})
 
@@ -339,7 +338,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 # class Test_vi_k_InVisualLineMode(BufferTest):
 #     def testMoveOne(self):
 #         set_text(self.view, 'abc\nabc\nabc')
-#         add_selection(self.view, a=0, b=4)
+#         add_sel(self.view, a=0, b=4)
 
 #         self.view.run_command('_vi_k', {'mode': MODE_VISUAL_LINE, 'count': 1, 'xpos': 1})
 
@@ -351,7 +350,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveMany(self):
 #         set_text(self.view, ''.join(('abc\n',) * 60))
-#         add_selection(self.view, a=0, b=4)
+#         add_sel(self.view, a=0, b=4)
 
 #         self.view.run_command('_vi_k', {'mode': MODE_VISUAL_LINE, 'count': 50, 'xpos': 1})
 
@@ -363,7 +362,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveFromEmptyLine(self):
 #         set_text(self.view, '\nfoo\nbar')
-#         add_selection(self.view, a=0, b=1)
+#         add_sel(self.view, a=0, b=1)
 
 #         self.view.run_command('_vi_k', {'mode': MODE_VISUAL_LINE, 'count': 1, 'xpos': 0})
 
@@ -375,7 +374,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveFromEmptyLineToEmptyLine(self):
 #         set_text(self.view, '\n\nbar')
-#         add_selection(self.view, a=0, b=1)
+#         add_sel(self.view, a=0, b=1)
 
 #         self.view.run_command('_vi_k', {'mode': MODE_VISUAL_LINE, 'count': 1, 'xpos': 0})
 
@@ -387,7 +386,7 @@ class Test_vi_k_InVisualMode(BufferTest):
 
 #     def testMoveTooFar(self):
 #         set_text(self.view, 'foo\nbar\nbaz')
-#         add_selection(self.view, a=0, b=4)
+#         add_sel(self.view, a=0, b=4)
 
 #         self.view.run_command('_vi_k', {'mode': MODE_VISUAL_LINE, 'count': 10000, 'xpos': 1})
 

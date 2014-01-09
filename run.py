@@ -69,6 +69,7 @@ class ViRunCommand(sublime_plugin.TextCommand):
 
             # XXX: Fix this. When should we run the motion exactly?
             if vi_cmd_data['action']:
+
                 # If no motion is present, we know we just have to run the action (like ctrl+w, v).
                 if ((vi_cmd_data['motion']) or
                     (vi_cmd_data['motion_required'] and
@@ -88,7 +89,18 @@ class ViRunCommand(sublime_plugin.TextCommand):
                                 state.cancel_macro = True
                                 return
 
+                was_visual_bottom_top = (state.mode in (MODE_VISUAL, MODE_VISUAL_LINE) and
+                                         self.view.sel()[0].b < self.view.sel()[0].a)
+                self.reorient_begin_to_end(vi_cmd_data)
                 self.do_action(vi_cmd_data)
+                if not state.settings.vi['_is_repeating']:
+                    # TODO: Document this better.
+                    # _bottom_top is set to True when the current selection before an action is inverted: .b < .a.
+                    # This is useful to know when repeating, so that upward motions like k will be translated to
+                    # their opposite and vice versa. Without this piece of information, forward-pointing selections
+                    # where .a < .b will *also* get reversed as just described, but they should not.
+                    # For example, vkkkU should, when repeated, equate to: vjjjU.
+                    state.settings.vi['_bottom_top'] = was_visual_bottom_top
             else:
                 self.do_whole_motion(vi_cmd_data)
                 if (vi_cmd_data['mode'] == MODE_NORMAL and
@@ -125,6 +137,16 @@ class ViRunCommand(sublime_plugin.TextCommand):
             state = VintageState(self.view)
             state.next_mode = vi_cmd_data['next_mode']
             state.next_mode_command = vi_cmd_data['follow_up_mode']
+
+    def reorient_begin_to_end(self, vi_cmd_data):
+        if vi_cmd_data['keep_selection_as_is']:
+            return
+
+        new_sel = []
+        for s in self.view.sel():
+            new_sel.append(sublime.Region(s.begin(), s.end()))
+        self.view.sel().clear()
+        self.view.sel().add_all(new_sel)
 
     # TODO: Test me.
     def save_caret_pos(self):
@@ -254,6 +276,12 @@ class ViRunCommand(sublime_plugin.TextCommand):
             # > in visual mode.
             i = vi_cmd_data['count'] if vi_cmd_data['_repeat_action'] else 1
             runner = self.view if not vi_cmd_data['is_window_command'] else self.view.window()
+            if (vi_cmd_data['mode'] == _MODE_INTERNAL_NORMAL and
+                vi_cmd_data['has_training_wheels']):
+                    # TODO: Make this optional.
+                    sels = list(self.view.sel())
+                    sublime.set_timeout(lambda: self.view.erase_regions('vi_training_wheels'), 350)
+                    self.view.add_regions('vi_training_wheels', sels, 'comment', '', sublime.DRAW_NO_FILL)
             for t in range(i):
                 runner.run_command(cmd, args)
 

@@ -11,37 +11,111 @@ import sublime_plugin
 from Vintageous.state import IrreversibleTextCommand
 from Vintageous.state import VintageState
 from Vintageous.vi import utils
-from Vintageous.vi import inputs
 from Vintageous.vi.constants import _MODE_INTERNAL_NORMAL
-from Vintageous.vi.constants import MODE_INSERT
 from Vintageous.vi.constants import MODE_NORMAL
 from Vintageous.vi.constants import MODE_VISUAL
 from Vintageous.vi.constants import MODE_VISUAL_LINE
 from Vintageous.vi.constants import MODE_SELECT
+from Vintageous.vi.constants import MODE_VISUAL_BLOCK
 from Vintageous.vi.constants import regions_transformer
 from Vintageous.vi.constants import regions_transformer_reversed
 from Vintageous.vi.registers import REG_EXPRESSION
 
 import re
+import os
+import stat
 
 
-class ViEditAtEol(sublime_plugin.TextCommand):
-    def run(self, edit, extend=False):
+class _vi_modify_numbers(sublime_plugin.TextCommand):
+    """
+    Base class for Ctrl-x and Ctrl-a.
+    """
+    DIGIT_PAT = re.compile('(\D+?)?(-)?(\d+)(\D+)?')
+    NUM_PAT = re.compile('\d')
+
+    def get_editable_data(self, pt):
+        sign = -1 if (self.view.substr(pt - 1) == '-') else 1
+        end = pt
+        while self.view.substr(end).isdigit():
+            end += 1
+        return (sign, int(self.view.substr(sublime.Region(pt, end))),
+                sublime.Region(end, self.view.line(pt).b))
+
+
+    def find_next_num(self, regions):
+        # Modify selections that are inside a number already.
+        for i, r in enumerate(regions):
+            a = r.b
+            if self.view.substr(r.b).isdigit():
+                while self.view.substr(a).isdigit():
+                    a -=1
+                regions[i] = sublime.Region(a)
+
+        lines = [self.view.substr(sublime.Region(r.b, self.view.line(r.b).b)) for r in regions]
+        matches = [_vi_modify_numbers.NUM_PAT.search(text) for text in lines]
+        if all(matches):
+            return [(reg.b + ma.start()) for (reg, ma) in zip(regions, matches)]
+        return []
+
+    def run(self, edit, count=1, mode=None, subtract=False):
+        if mode != _MODE_INTERNAL_NORMAL:
+            return
+
+        # TODO: Deal with octal, hex notations.
+        # TODO: Improve detection of numbers.
+        regs = list(self.view.sel())
+
+        pts = self.find_next_num(regs)
+        if not pts:
+            utils.blink()
+            return
+
+        count = count if not subtract else -count
+        end_sels = []
+        for pt in reversed(pts):
+            sign, num, tail = self.get_editable_data(pt)
+
+            num_as_text = str((sign * num) + count)
+            new_text = num_as_text + self.view.substr(tail)
+
+            offset = 0
+            if sign == -1:
+                offset = -1
+                self.view.replace(edit, sublime.Region(pt - 1, tail.b), new_text)
+            else:
+                self.view.replace(edit, sublime.Region(pt, tail.b), new_text)
+
+            rowcol = self.view.rowcol(pt + len(num_as_text) - 1 + offset)
+            end_sels.append(rowcol)
+
+        self.view.sel().clear()
+        for (row, col) in end_sels:
+            self.view.sel().add(sublime.Region(self.view.text_point(row, col)))
+
+
+class _vi_big_a(sublime_plugin.TextCommand):
+    def run(self, edit, extend=False, mode=None):
+        def f(view, s):
+            if mode == MODE_VISUAL_BLOCK:
+                if self.view.substr(s.b - 1) == '\n':
+                    return sublime.Region(s.end() - 1)
+                return sublime.Region(s.end())
+            elif mode == MODE_VISUAL:
+                pt = s.b
+                if self.view.substr(s.b - 1) == '\n':
+                    pt -= 1
+                if s.a > s.b:
+                    pt = view.line(s.a).a
+                return sublime.Region(pt)
+            elif mode != _MODE_INTERNAL_NORMAL:
+                return s
+            hard_eol = self.view.line(s.b).end()
+            return sublime.Region(hard_eol, hard_eol)
+
+        regions_transformer(self.view, f)
+
         state = VintageState(self.view)
         state.enter_insert_mode()
-
-        self.view.run_command('collapse_to_direction')
-
-        sels = list(self.view.sel())
-        self.view.sel().clear()
-
-        new_sels = []
-        for s in sels:
-            hard_eol = self.view.line(s.b).end()
-            new_sels.append(sublime.Region(hard_eol, hard_eol))
-
-        for s in new_sels:
-            self.view.sel().add(s)
 
 
 class ViEditAfterCaret(sublime_plugin.TextCommand):
@@ -69,19 +143,33 @@ class ViEditAfterCaret(sublime_plugin.TextCommand):
 
 
 class _vi_big_i(sublime_plugin.TextCommand):
-    def run(self, edit, extend=False):
+    def run(self, edit, extend=False, mode=None):
         def f(view, s):
+            if mode == MODE_VISUAL_BLOCK:
+                return sublime.Region(s.begin())
+            elif mode == MODE_VISUAL:
+                pt = view.line(s.a).a
+                if s.a > s.b:
+                    pt = s.b
+                return sublime.Region(pt)
+            elif mode == MODE_VISUAL_LINE:
+                line = view.line(s.a)
+                pt = utils.next_non_white_space_char(view, line.a)
+                return sublime.Region(pt)
+            elif mode != _MODE_INTERNAL_NORMAL:
+                return s
             line = view.line(s.b)
             pt = utils.next_non_white_space_char(view, line.a)
             return sublime.Region(pt, pt)
 
         state = VintageState(self.view)
+        # TODO: Use next_mode in the command parser instead?
         state.enter_insert_mode()
 
         regions_transformer(self.view, f)
 
 
-class ViPaste(sublime_plugin.TextCommand):
+class _vi_p(sublime_plugin.TextCommand):
     def run(self, edit, register=None, count=1):
         state = VintageState(self.view)
         register = register or '"'
@@ -89,6 +177,15 @@ class ViPaste(sublime_plugin.TextCommand):
         if not fragments:
             print("Vintageous: Nothing in register \".")
             return
+
+        if state.mode == MODE_VISUAL:
+            # force register population. We have to do it here
+            vi_cmd_data = {
+                "synthetize_new_line_at_eof": True,
+                "yanks_linewise": False,
+            }
+            prev_text = state.registers.get_selected_text(vi_cmd_data)
+            state.registers['"'] = prev_text
 
         sels = list(self.view.sel())
         # If we have the same number of pastes and selections, map 1:1. Otherwise paste paste[0]
@@ -200,9 +297,17 @@ class ViPaste(sublime_plugin.TextCommand):
             return sel.a
 
 
-class ViPasteBefore(sublime_plugin.TextCommand):
+class _vi_big_p(sublime_plugin.TextCommand):
     def run(self, edit, register=None, count=1):
         state = VintageState(self.view)
+
+        if state.mode == MODE_VISUAL:
+            # force register population. We have to do it here
+            vi_cmd_data = {
+                "synthetize_new_line_at_eof": True,
+                "yanks_linewise": False,
+            }
+            prev_text = state.registers.get_selected_text(vi_cmd_data)
 
         if register:
             fragments = state.registers[register]
@@ -210,23 +315,39 @@ class ViPasteBefore(sublime_plugin.TextCommand):
             # TODO: There should be a simpler way of getting the unnamed register's content.
             fragments = state.registers['"']
 
-        sels = list(self.view.sel())
+        if state.mode == MODE_VISUAL:
+            # Populate registers with the text we're about to paste.
+            state.registers['"'] = prev_text
 
+        sels = list(self.view.sel())
         if len(sels) == len(fragments):
             sel_frag = zip(sels, fragments)
         else:
             sel_frag = zip(sels, [fragments[0],] * len(sels))
 
+        pasting_linewise = True
         offset = 0
+        paste_locations = []
         for s, text in sel_frag:
+            row = self.view.rowcol(s.begin())[0]
+            row = max(0, row - 1)
             if text.endswith('\n'):
                 if utils.is_at_eol(self.view, s) or utils.is_at_bol(self.view, s):
-                    self.paste_all(edit, s, self.view.line(s.b).a, text, count)
+                    l = self.paste_all(edit, s, self.view.line(s.b).a, text, count)
+                    paste_locations.append(l)
                 else:
-                    self.paste_all(edit, s, self.view.line(s.b - 1).a, text, count)
+                    l = self.paste_all(edit, s, self.view.line(s.b - 1).a, text, count)
+                    paste_locations.append(l)
             else:
-                self.paste_all(edit, s, s.b + offset, text, count)
+                pasting_linewise = False
+                l = self.paste_all(edit, s, s.b + offset, text, count)
+                paste_locations.append(l)
                 offset += len(text) * count
+
+        if pasting_linewise:
+            self.reset_carets_linewise()
+        else:
+            self.reset_carets_charwise(paste_locations, len(text))
 
     def paste_all(self, edit, sel, at, text, count):
         # for x in range(count):
@@ -235,6 +356,8 @@ class ViPasteBefore(sublime_plugin.TextCommand):
         if state.mode not in (MODE_VISUAL, MODE_VISUAL_LINE):
             for x in range(count):
                 self.view.insert(edit, at, text)
+            return at + (len(text) * (count - 1))
+
         else:
             if text.endswith('\n'):
                 text = text * count
@@ -243,6 +366,35 @@ class ViPasteBefore(sublime_plugin.TextCommand):
             else:
                 text = text * count
             self.view.replace(edit, sel, text)
+            return sel.begin()
+
+    def reset_carets_charwise(self, paste_locations, paste_len):
+        # FIXME: Won't work for multiple jagged pastes...
+        b_pts = [s.b for s in list(self.view.sel())]
+        if len(b_pts) > 1:
+            self.view.sel().clear()
+            self.view.sel().add_all([sublime.Region(ploc + paste_len - 1,
+                                                    ploc + paste_len - 1)
+                                            for ploc in paste_locations])
+        else:
+            self.view.sel().clear()
+            self.view.sel().add(sublime.Region(paste_locations[0] + paste_len - 1,
+                                               paste_locations[0] + paste_len - 1))
+
+    def reset_carets_linewise(self):
+        # FIXME: Won't work well for visual selections...
+        # FIXME: This might not work for cmdline paste command (the target row isn't necessarily
+        #        the next one.
+        state = VintageState(self.view)
+        if state.mode == MODE_VISUAL_LINE:
+            self.view.run_command('collapse_to_a')
+        else:
+            # After pasting linewise, we should move the caret one line down.
+            b_pts = [s.b for s in list(self.view.sel())]
+            new_rows = [self.view.rowcol(b)[0] + 1 for b in b_pts]
+            row_starts = [self.view.text_point(r, 0) for r in new_rows]
+            self.view.sel().clear()
+            self.view.sel().add_all([sublime.Region(pt, pt) for pt in row_starts])
 
 
 class ViEnterNormalMode(sublime_plugin.TextCommand):
@@ -289,12 +441,28 @@ class ViEnterInsertMode(sublime_plugin.TextCommand):
         state.enter_insert_mode()
         self.view.run_command('collapse_to_direction')
 
+        # TODO: abstract this away into a function.
+        read_only = False
+        if self.view.file_name():
+            mode = os.stat(self.view.file_name())
+            read_only = (stat.S_IMODE(mode.st_mode) & stat.S_IWUSR !=
+                                                                stat.S_IWUSR)
+            if read_only or self.view.is_read_only():
+                # FIXME: Won't be displayed.
+                sublime.status_message("Vintageous: Warning: Attempting to change read-only file.")
+
 
 class ViEnterVisualMode(sublime_plugin.TextCommand):
-    def run(self, edit):
+    def run(self, edit, count=None):
+        def f(view, s):
+            return sublime.Region(s.a, s.b + (count - 1))
+
         state = VintageState(self.view)
         state.enter_visual_mode()
         self.view.run_command('extend_to_minimal_width')
+
+        if count > 1:
+            regions_transformer(self.view, f)
 
 
 class ViEnterVisualBlockMode(sublime_plugin.TextCommand):
@@ -358,6 +526,7 @@ class ViPushDigit(sublime_plugin.TextCommand):
             state.push_action_digit(digit)
 
 
+# TODO: Remove this.
 class ViReverseCaret(sublime_plugin.TextCommand):
     def run(self, edit):
         sels = list(self.view.sel())
@@ -556,9 +725,21 @@ class _vi_r(sublime_plugin.TextCommand):
             pt = view.text_point(next_row, 0)
             return sublime.Region(pt, pt)
 
+        def ff(view, s):
+            # no ending \n
+            if view.substr(s.end() - 1) == '\n':
+                s = sublime.Region(s.begin(), s.end() - 1)
+            lines = view.split_by_newlines(s)
+            for line in lines:
+                view.replace(edit, line, character * line.size())
+            return sublime.Region(s.begin(), s.begin())
+
         if mode == _MODE_INTERNAL_NORMAL:
             for s in self.view.sel():
                 self.view.replace(edit, s, character * s.size())
+        elif mode in (MODE_VISUAL, MODE_VISUAL_LINE):
+            regions_transformer(self.view, ff)
+            return
 
         if character == '\n':
             regions_transformer(self.view, f)
@@ -634,6 +815,11 @@ class _vi_repeat(IrreversibleTextCommand):
             # Unreachable.
             return
 
+        # Signal that we're not simply issuing an interactive command, but rather repeating one.
+        # This is necessary, for example, to notify _vi_k that it should become _vi_j instead
+        # if the former was run in visual mode.
+        state.settings.vi['_is_repeating'] = True
+
         if not cmd:
             return
         elif cmd == 'vi_run':
@@ -643,9 +829,11 @@ class _vi_repeat(IrreversibleTextCommand):
             self.view.run_command(cmd, args)
         elif cmd == 'sequence':
             for i, _ in enumerate(args['commands']):
-                # Access this shape: {"commands":[['vi_run', {"foo": 100}],...]}
-                args['commands'][i][1]['next_mode'] = MODE_NORMAL
-                args['commands'][i][1]['follow_up_mode'] = 'vi_enter_normal_mode'
+                # We can have either 'vi_run' commands or plain insert mode commands.
+                if args['commands'][i][0] == 'vi_run':
+                    # Access this shape: {"commands":[['vi_run', {"foo": 100}],...]}
+                    args['commands'][i][1]['next_mode'] = MODE_NORMAL
+                    args['commands'][i][1]['follow_up_mode'] = 'vi_enter_normal_mode'
 
             # TODO: Implement counts properly for 'sequence' command.
             for i in range(state.count):
@@ -656,6 +844,7 @@ class _vi_repeat(IrreversibleTextCommand):
         # XXX: Needed here? Maybe enter_... type commands should be IrreversibleTextCommands so we
         # must/can call them whenever we need them withouth affecting the undo stack.
         self.view.run_command('vi_enter_normal_mode')
+        state.settings.vi['_is_repeating'] = False
 
 
 class _vi_redo(IrreversibleTextCommand):
@@ -677,7 +866,7 @@ class _vi_redo(IrreversibleTextCommand):
 
 class _vi_ctrl_w_v_action(sublime_plugin.TextCommand):
     def run(self, edit):
-        self.view.window().run_command('new_pane', {})
+        self.view.window().run_command('ex_vsplit')
 
 
 class Sequence(sublime_plugin.TextCommand):
@@ -695,141 +884,70 @@ class Sequence(sublime_plugin.TextCommand):
 
 
 class _vi_big_j(sublime_plugin.TextCommand):
-    def run(self, edit, mode=None):
+    WHITE_SPACE = ' \t'
+
+    def row_at(self, pt):
+        return self.view.rowcol(pt)[0]
+
+    def get_separator(self, pt):
+        # Get the line's last character.
+        pt = self.view.line(pt).b - 1
+        c = self.view.substr(pt)
+        sep = c if c in _vi_big_j.WHITE_SPACE else ''
+        return sep
+
+    def run(self, edit, mode=None, separator=' ', count=1):
         def f(view, s):
             if mode == _MODE_INTERNAL_NORMAL:
-                full_current_line = view.full_line(s.b)
-                target = full_current_line.b - 1
-                full_next_line = view.full_line(full_current_line.b)
-                two_lines = sublime.Region(full_current_line.a, full_next_line.b)
-
-                # Text without \n.
-                first_line_text = view.substr(view.line(full_current_line.a))
-                next_line_text = view.substr(full_next_line)
-
-                if len(next_line_text) > 1:
-                    next_line_text = next_line_text.lstrip()
-
-                sep = ''
-                if first_line_text and not first_line_text.endswith(' '):
-                    sep = ' '
-
-                view.replace(edit, two_lines, first_line_text + sep + next_line_text)
-
-                if first_line_text:
-                    return sublime.Region(target, target)
-                return s
+                end_pos = self.view.line(s.b).b
+                sep = self.get_separator(s.a)
+                start = end = s.b
+                if count > 2:
+                    end = self.view.text_point(self.row_at(s.b) + (count - 1), 0)
+                    end = self.view.line(end).b
+                else:
+                    # Join current line and the next.
+                    end = self.view.text_point(self.row_at(s.b) + 1, 0)
+                    end = self.view.line(end).b
+            elif mode == MODE_VISUAL:
+                if s.a < s.b:
+                    sep = self.get_separator(s.a)
+                    end_pos = self.view.line(s.a).b
+                    start = s.a
+                    if self.row_at(s.b - 1) == self.row_at(s.a):
+                        end = self.view.text_point(self.row_at(s.a) + 1, 0)
+                    else:
+                        end = self.view.text_point(self.row_at(s.b - 1), 0)
+                    end = self.view.line(end).b
+                else:
+                    sep = self.get_separator(s.b)
+                    end_pos = self.view.line(s.b).b
+                    start = s.b
+                    if self.row_at(s.b) == self.row_at(s.a - 1):
+                        end = self.view.text_point(self.row_at(s.a - 1) + 1, 0)
+                    else:
+                        end = self.view.text_point(self.row_at(s.a - 1), 0)
+                    end = self.view.line(end).b
             else:
                 return s
 
-        regions_transformer(self.view, f)
+            text_to_join = self.view.substr(sublime.Region(start, end))
+            text_to_join = re.sub(r'\n+', r'\n', text_to_join)
+            lines = text_to_join.split('\n')
+            lines = [l.lstrip().rstrip() for l in lines]
+            text_to_join = '\n'.join(lines)
 
+            if separator:
+                # J
+                joined_text = text_to_join.replace('\n', sep or separator)
+            else:
+                # gJ
+                joined_text = text_to_join.replace('\n', '')
 
-class _vi_ctrl_a(sublime_plugin.TextCommand):
-    def run(self, edit, count=1, mode=None):
-        def f(view, s):
-            if mode == _MODE_INTERNAL_NORMAL:
-                word = view.word(s.a)
-                new_digit = int(view.substr(word)) + count
-                view.replace(edit, word, str(new_digit))
-
-            return s
-
-        if mode != _MODE_INTERNAL_NORMAL:
-            return
-
-        # TODO: Deal with octal, hex notations.
-        # TODO: Improve detection of numbers.
-        # TODO: Find the next numeric word in the line if none is found under the caret.
-        words = [self.view.substr(self.view.word(s)) for s in self.view.sel()]
-        if not all([w.isdigit() for w in words]):
-            utils.blink()
-            return
+            self.view.replace(edit, sublime.Region(start, end), joined_text)
+            return sublime.Region(end_pos)
 
         regions_transformer(self.view, f)
-
-
-class _vi_ctrl_x(sublime_plugin.TextCommand):
-    DIGIT_PAT = re.compile('(-)?(\d+)(\D+)?')
-    NUM_PAT = re.compile('\d')
-
-    def get_word(self, s):
-        word = self.view.word(s.b)
-        if word.a > 0:
-            if self.view.substr(word.a - 1) == '-':
-               return sublime.Region(word.a - 1, word.b)
-        return word
-
-    def check_words(self, regions):
-        nums = [self.view.substr(s.b).isdigit() for s in regions]
-        if not all(nums):
-            return []
-
-        words = [self.get_word(s) for s in regions]
-        matches = [_vi_ctrl_x.DIGIT_PAT.match(self.view.substr(w)) for w in words]
-
-        if all(matches):
-            return zip(words, matches)
-        return []
-
-    def find_next_num(self, regions):
-        lines = [self.view.substr(sublime.Region(r.b, self.view.line(r.b).b)) for r in regions]
-        positions = [_vi_ctrl_x.NUM_PAT.search(text) for text in lines]
-        if all(positions):
-            pairs = zip(regions, positions)
-            rv = [sublime.Region(r.b + p.start()) for (r, p) in pairs]
-            return rv
-        return []
-
-    def run(self, edit, count=1, mode=None):
-        def f(view, s):
-            if mode == _MODE_INTERNAL_NORMAL:
-
-                word, match = next(pairs)
-                sign, amount, suffix = match.groups()
-                sign = -1 if sign else 1
-                suffix = suffix or ''
-
-                new_digit = (sign * int(amount)) - count
-                view.replace(edit, word, str(new_digit) + suffix)
-
-                offset = len(str(new_digit))
-                # FIXME: Deal with multiple sels as we should.
-                if len(view.sel()) == 1:
-                    return sublime.Region(word.a + offset - 1)
-                # return sublime.Region(word.b - len(suffix) - 1)
-
-            return s
-
-        if mode != _MODE_INTERNAL_NORMAL:
-            return
-
-        # TODO: Deal with octal, hex notations.
-        # TODO: Improve detection of numbers.
-        pairs = list(self.check_words(list(self.view.sel())))
-        if not pairs:
-            next_nums = self.find_next_num(list(self.view.sel()))
-            if not next_nums:
-                utils.blink()
-                return
-            pairs = iter(reversed(list(self.check_words(next_nums))))
-        else:
-            pairs = iter(reversed(list(self.check_words(self.view.sel()))))
-
-        try:
-            xpos = []
-            if len(self.view.sel()) > 1:
-                rowcols = [self.view.rowcol(s.b - 1) for s in self.view.sel()]
-            regions_transformer_reversed(self.view, f)
-            if len(self.view.sel()) > 1:
-                regs = [sublime.Region(self.view.text_point(*rc)) for rc in rowcols]
-                next_nums = self.find_next_num(regs)
-                if next_nums:
-                    self.view.sel().clear()
-                    self.view.sel().add_all(next_nums)
-        except StopIteration:
-            utils.blink()
-            return
 
 
 class _vi_g_v(IrreversibleTextCommand):
@@ -954,12 +1072,64 @@ class _vi_cc_action(sublime_plugin.TextCommand):
         def f(view, s):
             # We've made a selection with _vi_cc_motion just before this.
             if mode == _MODE_INTERNAL_NORMAL:
-                pt = utils.next_non_white_space_char(view, s.a, white_space=' \t')
-                view.erase(edit, sublime.Region(pt, view.line(s.b).b))
+                begin = self.view.text_point(self.view.rowcol(s.b)[0], 0)
+                view.erase(edit, s)
+                return sublime.Region(begin)
+            return s
+
+        def ff(view, s):
+            # We've made a selection with _vi_cc_motion just before this.
+            if mode == _MODE_INTERNAL_NORMAL:
+                pt = utils.next_non_white_space_char(view, s.b, white_space=' \t')
+                return sublime.Region(pt)
+            return s
+
+        prev_rows = [self.view.rowcol(s.a)[0] for s in list(self.view.sel())]
+        regions_transformer_reversed(self.view, f)
+        if mode == _MODE_INTERNAL_NORMAL:
+            self.view.sel().clear()
+            self.view.sel().add_all(list(sublime.Region(self.view.text_point(row, 0)) for row in prev_rows))
+            self.view.run_command('reindent', {'force_indent': False})
+        regions_transformer_reversed(self.view, ff)
+
+
+# internal command
+class _vi_int_reindent(sublime_plugin.TextCommand):
+    def run(self, edit, mode=None):
+        def f(view, s):
+            # We've made a selection with _vi_cc_motion just before this.
+            if mode == _MODE_INTERNAL_NORMAL:
+                begin = self.view.text_point(self.view.rowcol(s.b)[0], 0)
+                self.view.run_command('reindent', {'force_indent': False})
+                return sublime.Region(begin)
+            return s
+
+        regions_transformer_reversed(self.view, f)
+
+
+class _vi_dd_action(sublime_plugin.TextCommand):
+    def row_at(self, pt):
+        return self.view.rowcol(pt)[0]
+
+    def run(self, edit, mode=None):
+        def f(view, s):
+            # We've made a selection with _vi_cc_motion just before this.
+            if mode == _MODE_INTERNAL_NORMAL:
+                view.erase(edit, s)
+                if self.row_at(s.a) != self.row_at(self.view.size()):
+                    pt = utils.next_non_white_space_char(view, s.a, white_space=' \t')
+                else:
+                    pt = utils.next_non_white_space_char(view,
+                                                         self.view.line(s.a).a,
+                                                         white_space=' \t')
+
                 return sublime.Region(pt, pt)
             return s
 
-        regions_transformer(self.view, f)
+        row = [self.view.rowcol(s.begin())[0] for s in self.view.sel()][0]
+        regions_transformer_reversed(self.view, f)
+        self.view.sel().clear()
+        self.view.sel().add(sublime.Region(self.view.text_point(row, 0)))
 
 
 class _vi_big_s_action(sublime_plugin.TextCommand):
@@ -1009,3 +1179,14 @@ class _vi_ctrl_y(sublime_plugin.TextCommand):
             return
         extend = True if mode == MODE_VISUAL else False
         self.view.run_command('scroll_lines', {'amount': 1, 'extend': extend})
+
+
+#  _ivi_... for 'insert vi...'
+class _ivi_ctrl_u(sublime_plugin.TextCommand):
+    def run(self, edit):
+        def f(view, s):
+            return sublime.Region(s.b, view.line(s.b).a)
+
+        regions_transformer(self.view, f)
+
+        self.view.run_command('left_delete')

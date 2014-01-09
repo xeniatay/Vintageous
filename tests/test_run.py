@@ -5,8 +5,9 @@ import sublime
 import sublime_plugin
 
 
-from Vintageous.tests.borrowed import mock
-from Vintageous.tests.borrowed.mock import call
+from unittest import mock
+from unittest.mock import call
+
 from Vintageous.run import ViExecutionState
 from Vintageous.run import ViRunCommand
 from Vintageous.vi.constants import MODE_NORMAL
@@ -95,6 +96,8 @@ class Test_do_action(unittest.TestCase):
             'action': {'command': 'foo', 'args': {}},
             '_repeat_action': False,
             'is_window_command': False,
+            'mode': _MODE_INTERNAL_NORMAL,
+            'has_training_wheels': False,
             }
         self.vi_run.do_action(vi_cmd_data)
         mocked_regs.yank.assert_called_once_with(vi_cmd_data)
@@ -106,6 +109,8 @@ class Test_do_action(unittest.TestCase):
             'action': {'command': 'foo', 'args': {}},
             '_repeat_action': False,
             'is_window_command': False,
+            'mode': _MODE_INTERNAL_NORMAL,
+            'has_training_wheels': False,
             }
         self.vi_run.do_action(vi_cmd_data)
         self.vi_run.view.run_command.assert_called_once_with('foo', {})
@@ -118,6 +123,8 @@ class Test_do_action(unittest.TestCase):
             '_repeat_action': True,
             'count': 10,
             'is_window_command': False,
+            'mode': _MODE_INTERNAL_NORMAL,
+            'has_training_wheels': False,
             }
         self.vi_run.do_action(vi_cmd_data)
         self.assertEqual(self.vi_run.view.run_command.call_count, 10)
@@ -731,6 +738,8 @@ class Test_run(unittest.TestCase):
                         'scroll_into_view': False,
                         'next_mode': 10,
                         'follow_up_mode': 100,
+                        # FIXME: In reality, this will be 'False' most of the time.
+                        'keep_selection_as_is': True,
                       }
 
         self.vi_run.view.sel.return_value = []

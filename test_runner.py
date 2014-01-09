@@ -44,19 +44,40 @@ TESTS_CONSTANTS = 'Vintageous.tests.vi.test_constants'
 TESTS_CMD_DATA = 'Vintageous.tests.vi.test_cmd_data'
 TESTS_KEYMAP = 'Vintageous.tests.test_keymap'
 TESTS_RUN = 'Vintageous.tests.test_run'
+TESTS_SEL = 'Vintageous.tests.sel.test_sel_orientation'
+
+TESTS_TEXT_OBJECTS = 'Vintageous.tests.vi.test_text_objects'
+TESTS_TEXT_OBJECTS_A_WORD = 'Vintageous.tests.vi.test_a_word'
+TESTS_TEXT_OBJECTS_PARAGRAPH = 'Vintageous.tests.vi.test_find_paragraph_text_object'
 
 TESTS_CMDS_SET_ACTION = 'Vintageous.tests.commands.test_set_action'
 TESTS_CMDS_SET_MOTION = 'Vintageous.tests.commands.test_set_motion'
 TESTS_CMDS_MOTION_VI_L = 'Vintageous.tests.commands.test__vi_l'
 TESTS_CMDS_MOTION_VI_H = 'Vintageous.tests.commands.test__vi_h'
 TESTS_CMDS_MOTION_VI_BIG_G = 'Vintageous.tests.commands.test__vi_big_g'
+TESTS_CMDS_MOTION_VI_G_G = 'Vintageous.tests.commands.test__vi_g_g'
 TESTS_CMDS_MOTION_VI_DOLLAR = 'Vintageous.tests.commands.test__vi_dollar'
 TESTS_CMDS_MOTION_VI_J = 'Vintageous.tests.commands.test__vi_j'
 TESTS_CMDS_MOTION_VI_K = 'Vintageous.tests.commands.test__vi_k'
+TESTS_CMDS_MOTION_VI_E = 'Vintageous.tests.commands.test__vi_e'
 TESTS_CMDS_MOTION_VI_BIG_F = 'Vintageous.tests.commands.test__vi_big_f'
+TESTS_CMDS_MOTION_VI_PERCENT = 'Vintageous.tests.commands.test__vi_percent'
+TESTS_CMDS_MOTION_VI_ANTILAMBDA = 'Vintageous.tests.commands.test__vi_antilambda'
+TESTS_CMDS_MOTION_VI_ZERO = 'Vintageous.tests.commands.test__vi_zero'
 TESTS_CMDS_ACTION_CTRL_X = 'Vintageous.tests.commands.test__ctrl_x_and__ctrl_a'
+TESTS_CMDS_ACTION_VI_S = 'Vintageous.tests.commands.test__vi_s'
+TESTS_CMDS_ACTION_VI_BIG_I = 'Vintageous.tests.commands.test__vi_big_i'
+TESTS_CMDS_ACTION_VI_BIG_A = 'Vintageous.tests.commands.test__vi_big_a'
 TESTS_CMDS_ACTION_VI_CC = 'Vintageous.tests.commands.test__vi_cc'
 TESTS_CMDS_ACTION_VI_BIG_S = 'Vintageous.tests.commands.test__vi_big_s'
+TESTS_CMDS_MOTION_VI_VISUAL_O = 'Vintageous.tests.commands.test__vi_visual_o'
+TESTS_CMDS_ACTION_VI_DD = 'Vintageous.tests.commands.test__vi_dd'
+TESTS_CMDS_ACTION_VI_BIG_J = 'Vintageous.tests.commands.test__vi_big_j'
+
+TESTS_EX_CMDS_COPY = 'Vintageous.tests.ex.test_copy'
+TESTS_EX_CMDS_MOVE = 'Vintageous.tests.ex.test_move'
+TESTS_EX_CMDS_DELETE = 'Vintageous.tests.ex.test_delete'
+TESTS_EX_CMDS_SHELL_OUT = 'Vintageous.tests.ex.test_shell_out'
 
 TESTS_UNITS_WORD = 'Vintageous.tests.vi.test_word'
 TESTS_UNITS_BIG_WORD = 'Vintageous.tests.vi.test_big_word'
@@ -66,22 +87,51 @@ TESTS_CMDS_ALL_SUPPORT = [TESTS_CMDS_SET_ACTION, TESTS_CMDS_SET_MOTION]
 
 TESTS_CMDS_ALL_ACTIONS = [TESTS_CMDS_ACTION_CTRL_X,
                           TESTS_CMDS_ACTION_VI_CC,
+                          TESTS_CMDS_ACTION_VI_S,
+                          TESTS_CMDS_ACTION_VI_BIG_I,
+                          TESTS_CMDS_ACTION_VI_BIG_A,
+                          TESTS_CMDS_ACTION_VI_DD,
+                          TESTS_CMDS_ACTION_VI_BIG_J,
                           ]
 
 TESTS_CMDS_ALL_MOTIONS = [TESTS_CMDS_MOTION_VI_L,
                           TESTS_CMDS_MOTION_VI_H,
                           TESTS_CMDS_MOTION_VI_BIG_G,
+                          TESTS_CMDS_MOTION_VI_G_G,
                           TESTS_CMDS_MOTION_VI_DOLLAR,
                           TESTS_CMDS_MOTION_VI_J,
                           TESTS_CMDS_MOTION_VI_K,
+                          TESTS_CMDS_MOTION_VI_E,
                           TESTS_CMDS_MOTION_VI_BIG_F,
                           TESTS_CMDS_ACTION_VI_BIG_S,
+                          TESTS_CMDS_MOTION_VI_VISUAL_O,
+                          TESTS_CMDS_MOTION_VI_PERCENT,
+                          TESTS_CMDS_MOTION_VI_ANTILAMBDA,
+                          TESTS_CMDS_MOTION_VI_ZERO,
                           ]
+
+TESTS_ALL_TEXT_OBJECTS = [
+    TESTS_TEXT_OBJECTS,
+    TESTS_TEXT_OBJECTS_A_WORD,
+    TESTS_TEXT_OBJECTS_PARAGRAPH,
+]
+
+TESTS_EX_CMDS = [
+    TESTS_EX_CMDS_COPY,
+    TESTS_EX_CMDS_MOVE,
+    TESTS_EX_CMDS_DELETE,
+    TESTS_EX_CMDS_SHELL_OUT,
+]
 
 TESTS_UNITS_ALL = [TESTS_UNITS_WORD,
                    TESTS_UNITS_BIG_WORD,
                    TESTS_UNITS_WORD_END,
                   ]
+
+
+TESTS_SEL_RELATED = [
+                    TESTS_SEL,
+]
 
 TESTS_CMDS_ALL = TESTS_CMDS_ALL_MOTIONS + TESTS_CMDS_ALL_ACTIONS + TESTS_CMDS_ALL_SUPPORT
 
@@ -105,6 +155,12 @@ test_suites = {
         'commands': ['_pt_run_tests', TESTS_CMDS_ALL],
 
         'units': ['_pt_run_tests', TESTS_UNITS_ALL],
+
+        'ex_cmds': ['_pt_run_tests', TESTS_EX_CMDS],
+
+        '_sel_': ['_pt_run_tests', TESTS_SEL_RELATED],
+
+        'objects': ['_pt_run_tests', TESTS_ALL_TEXT_OBJECTS],
 }
 
 

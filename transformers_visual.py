@@ -13,6 +13,20 @@ from Vintageous.vi.constants import regions_transformer
 from Vintageous.vi.text_objects import get_text_object_region
 
 
+class AntonymAwarenessMixin(object):
+    """
+    Some motions need translation when they're being repeated after having
+    been used in visual modes.
+
+    For example, _vi_k must become _vi_j if repeated after being used in
+    some visual modes.
+    """
+    def must_run_antonym(self, mode=None):
+        if (VintageState(self.view).settings.vi['_is_repeating'] and
+            mode in (MODE_VISUAL, MODE_VISUAL_LINE)):
+                return True
+
+
 class ExtendToMinimalWidth(sublime_plugin.TextCommand):
     def run(self, edit):
         def f(view, s):
@@ -538,7 +552,6 @@ class _vi_yy_post_motion(sublime_plugin.TextCommand):
 
         regions_transformer(self.view, f)
 
-
 class _vi_move_caret_to_first_non_white_space_character(sublime_plugin.TextCommand):
     def run(self, edit, mode=None):
         def f(view, s):
@@ -633,7 +646,7 @@ class _vi_l(sublime_plugin.TextCommand):
         regions_transformer(self.view, f)
 
 
-class _vi_h(sublime_plugin.TextCommand):
+class _vi_h(sublime_plugin.TextCommand, AntonymAwarenessMixin):
     def run(self, edit, count=None, mode=None):
         def f(view, s):
             if mode == _MODE_INTERNAL_NORMAL:
@@ -664,6 +677,10 @@ class _vi_h(sublime_plugin.TextCommand):
             # XXX: We should never reach this.
             return s
 
+        if self.must_run_antonym(mode=mode):
+            self.view.run_command('_vi_l', {'mode': mode, 'count': count})
+            return
+
         # For jagged selections (on the rhs), only those sticking out need to move leftwards.
         # Example ([] denotes the selection):
         #
@@ -683,7 +700,7 @@ class _vi_h(sublime_plugin.TextCommand):
         regions_transformer(self.view, f)
 
 
-class _vi_j(sublime_plugin.TextCommand):
+class _vi_j(sublime_plugin.TextCommand, AntonymAwarenessMixin):
     def folded_rows(self, pt):
         folds = self.view.folded_regions()
         try:
@@ -707,7 +724,7 @@ class _vi_j(sublime_plugin.TextCommand):
             pass
         return pt
 
-    def run(self, edit, count=None, mode=None, xpos=0):
+    def run(self, edit, count=None, mode=None, xpos=0, no_translation=False):
         def f(view, s):
             if mode == MODE_NORMAL:
                 current_row = view.rowcol(s.b)[0]
@@ -790,6 +807,15 @@ class _vi_j(sublime_plugin.TextCommand):
 
             return s
 
+        # 'no_translation' avoids an inifinite loop.
+        if (self.must_run_antonym(mode=mode) and not no_translation and
+            VintageState(self.view).settings.vi['_bottom_top']):
+                self.view.run_command('_vi_k', {'count': count,
+                                                'mode': mode,
+                                                'xpos': xpos,
+                                                'no_translation': True})
+                return
+
         if mode == MODE_VISUAL_BLOCK:
             # Don't do anything if we have reversed selections.
             if any((r.b < r.a) for r in self.view.sel()):
@@ -811,13 +837,15 @@ class _vi_j(sublime_plugin.TextCommand):
             max_size = max(r.size() for r in self.view.sel())
             row, col = self.view.rowcol(self.view.sel()[-1].a)
             start = self.view.text_point(row + 1, col)
-            self.view.sel().add(sublime.Region(start, start + max_size))
-            return
+            new_region = sublime.Region(start, start + max_size)
+            self.view.sel().add(new_region)
+            # FIXME: Perhaps we should scroll into view in a more general way...
+            self.view.show(new_region, False)
 
         regions_transformer(self.view, f)
 
 
-class _vi_k(sublime_plugin.TextCommand):
+class _vi_k(sublime_plugin.TextCommand, AntonymAwarenessMixin):
     def previous_non_folded_pt(self, pt):
         # FIXME: If we have two contiguous folds, this method will fail.
         # Handle folded regions.
@@ -830,7 +858,7 @@ class _vi_k(sublime_plugin.TextCommand):
             pass
         return pt
 
-    def run(self, edit, count=None, mode=None, xpos=0):
+    def run(self, edit, count=None, mode=None, xpos=0, no_translation=False):
         def f(view, s):
             if mode == MODE_NORMAL:
                 current_row = view.rowcol(s.b)[0]
@@ -919,6 +947,15 @@ class _vi_k(sublime_plugin.TextCommand):
 
                     return sublime.Region(s.a, view.full_line(target_pt).a)
 
+        # 'no_translation' avoids an inifinite loop.
+        if (self.must_run_antonym(mode=mode) and not no_translation and
+            VintageState(self.view).settings.vi['_bottom_top']):
+                self.view.run_command('_vi_j', {'count': count,
+                                                'mode': mode,
+                                                'xpos': xpos,
+                                                'no_translation': True})
+                return
+
         if mode == MODE_VISUAL_BLOCK:
             # Don't do anything if we have reversed selections.
             if any((r.b < r.a) for r in self.view.sel()):
@@ -935,7 +972,11 @@ class _vi_k(sublime_plugin.TextCommand):
                     return
             rect_size = max(r.size() for r in self.view.sel())
             rect_a_pt = self.view.text_point(row - 1, rect_a)
-            self.view.sel().add(sublime.Region(rect_a_pt, rect_a_pt + rect_size))
+            new_region = sublime.Region(rect_a_pt, rect_a_pt + rect_size)
+            self.view.sel().add(new_region)
+            # FIXME: We should probably scroll into view in a more general way.
+            #        Or maybe every motion should handle this on their own.
+            self.view.show(new_region, False)
             return
 
         regions_transformer(self.view, f)

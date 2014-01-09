@@ -2,8 +2,8 @@ import unittest
 
 import sublime
 
-from Vintageous.tests.borrowed import mock
-from Vintageous.tests.borrowed.mock import call
+from unittest import mock
+from unittest.mock import call
 from Vintageous.state import VintageState
 from Vintageous.test_runner import TestsState
 from Vintageous.vi.constants import _MODE_INTERNAL_NORMAL
@@ -19,9 +19,9 @@ from Vintageous.vi.constants import DIGRAPH_ACTION
 from Vintageous.state import _init_vintageous
 from Vintageous.vi.cmd_data import CmdData
 from Vintageous.vi import utils
-from Vintageous.tests.commands import set_text
-from Vintageous.tests.commands import add_selection
-from Vintageous.tests.commands import make_region
+from Vintageous.tests import set_text
+from Vintageous.tests import add_sel
+from Vintageous.tests import make_region
 import Vintageous.state
 
 

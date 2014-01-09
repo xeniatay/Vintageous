@@ -2,13 +2,13 @@ syntax: glob
 
 *.pyc
 
-*.orig
-*.rej
-
 *.tags
 *.tags_sorted_by_file
 
 dist/
 
 *.sublime-workspace
-*.sublime-project
+
+*.swp
+*.swo
+
